@@ -56,3 +56,20 @@ func Derive(parent int64, label string) int64 {
 
 	return int64(hf.Sum64())
 }
+
+// NormFloat64 returns a normally distributed float64 with mean 0 and stddev 1
+// using the Box-Muller transform
+func (r *Rng) NormFloat64() float64 {
+	u1 := r.Float64()
+	u2 := r.Float64()
+	return math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
+}
+
+// Read fills p with random bytes, implementing io.Reader
+func (r *Rng) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(r.Intn(256))
+	}
+
+	return len(p), nil
+}

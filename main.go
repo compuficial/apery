@@ -28,7 +28,7 @@ func main() {
 					{Name: "is_active", Gen: "bool", Config: map[string]any{"probability": 0.7}},
 					{Name: "department", Gen: "pick", Config: map[string]any{"values": []any{"engineering", "sales"}}},
 					{Name: "department_code", Gen: "int", Config: map[string]any{"max": 100}},
-					{Name: "idn", Gen: "uuid"},
+					{Name: "idn", Gen: "ulid"},
 					{Name: "timestamp", Gen: "time", Config: map[string]any{"format": "2006-01-02"}},
 				},
 			},
