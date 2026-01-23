@@ -47,7 +47,7 @@ go test ./internal/registry
    - Global registry pattern with `Register()` and `Get()`
    - Generators use `init()` for auto-registration
    - Each generator implements `Next(r *rng.Rng) (any, error)`
-   - Built-in generators: `seq` (sequential), `pick` (random selection)
+   - Built-in generators: `seq`, `pick`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`
 
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
    - Executes plans by iterating entities and fields
@@ -63,6 +63,7 @@ go test ./internal/registry
    - `Derive(parent, label)`: Creates child seeds using FNV-1a hash
    - Ensures reproducibility: same seed + plan = identical output
    - Hierarchical: root → entity → field → row derivation
+   - Implements `io.Reader` for compatibility with libraries requiring entropy sources (e.g., ULID)
 
 ### Determinism Model
 
@@ -126,4 +127,19 @@ The `sdg.md` file contains the full specification and design philosophy. Key sec
 
 - Module name: `apery`
 - Go version: 1.24.3
-- No external dependencies currently (stdlib only)
+- External dependencies:
+  - `github.com/google/uuid` - UUID generation
+  - `github.com/oklog/ulid/v2` - ULID generation
+
+## Testing
+
+Tests follow a consistent pattern using shared helpers in `registry_test_helpers.go`:
+- `RunConfigTests()` - validates generator configuration
+- `RunDeterminismTests()` / `AssertDeterministic()` - verifies same seed produces same output
+- Generator-specific tests for format validation and distribution
+
+Run tests for a specific generator:
+```bash
+go test -v ./internal/registry -run Bool
+go test -v ./internal/registry -run ULID
+```

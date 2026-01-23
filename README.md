@@ -42,10 +42,14 @@ internal/
 ## Generators
 
 Currently implemented:
-- `seq` - Sequential integers (int64)
+- `seq` - Sequential integers with configurable start/step
 - `pick` - Random selection from a list
 - `bool` - Boolean with configurable probability
-- `int` - Random integers within a range (int64)
+- `int` - Random integers within a range
+- `float` - Random floats within a range
+- `uuid` - UUID v4 strings
+- `ulid` - ULID strings (sortable unique identifiers)
+- `time` - Timestamps within a configurable range
 
 ## Example
 
@@ -57,9 +61,15 @@ plan := &plan.Plan{
             Name:  "User",
             Count: 100,
             Fields: []plan.FieldSpec{
-                {Name: "id", Gen: "seq"},
+                {Name: "id", Gen: "ulid"},
                 {Name: "age", Gen: "int", Config: map[string]any{"min": 18, "max": 65}},
+                {Name: "score", Gen: "float", Config: map[string]any{"min": 0.0, "max": 100.0}},
                 {Name: "active", Gen: "bool", Config: map[string]any{"probability": 0.8}},
+                {Name: "role", Gen: "pick", Config: map[string]any{"values": []any{"admin", "user", "guest"}}},
+                {Name: "created_at", Gen: "time", Config: map[string]any{
+                    "start": "2024-01-01T00:00:00Z",
+                    "end":   "2024-12-31T23:59:59Z",
+                }},
             },
         },
     },
