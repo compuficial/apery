@@ -70,3 +70,20 @@ func TestIntGenerator_Range(t *testing.T) {
 		})
 	}
 }
+
+func TestIntGenerator_OutputType(t *testing.T) {
+	gen, err := Get(intGen, map[string]any{"min": 10, "max": 20})
+	if err != nil {
+		t.Fatalf("failed to create generator: %v", err)
+	}
+
+	r := rng.New(testSeed)
+	val, err := gen.Next(r)
+	if err != nil {
+		t.Fatalf("generation error: %v", err)
+	}
+
+	if _, ok := val.(int64); !ok {
+		t.Errorf("expected int64, got %T", val)
+	}
+}

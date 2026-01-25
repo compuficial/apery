@@ -26,26 +26,20 @@ func validateFloatConfig(config map[string]any) (float64, float64, error) {
 
 	// Validate min parameter
 	if val, exists := config["min"]; exists {
-		switch v := val.(type) {
-		case float64:
-			minVal = v
-		case int:
-			minVal = float64(v)
-		default:
-			return 0, 0, fmt.Errorf("float: 'min' must be a number, got %T (use: 0.5 or 0)", val)
+		v, err := extractFloat(val, "min", "float")
+		if err != nil {
+			return 0, 0, err
 		}
+		minVal = v
 	}
 
 	// Validate max parameter
 	if val, exists := config["max"]; exists {
-		switch v := val.(type) {
-		case float64:
-			maxVal = v
-		case int:
-			maxVal = float64(v)
-		default:
-			return 0, 0, fmt.Errorf("float: 'max' must be a number, got %T (use: 100.5 or 100)", val)
+		v, err := extractFloat(val, "max", "float")
+		if err != nil {
+			return 0, 0, err
 		}
+		maxVal = v
 	}
 
 	// Validate min <= max

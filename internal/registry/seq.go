@@ -7,8 +7,8 @@ import (
 
 // SeqGenerator generates sequential integers starting from 1
 type SeqGenerator struct {
-	current int
-	step    int
+	current int64
+	step    int64
 }
 
 // Next returns the next integer in the sequence
@@ -18,28 +18,28 @@ func (s *SeqGenerator) Next(r *rng.Rng) (any, error) {
 }
 
 // validateSeqConfig validates and parses config for seq generator
-func validateSeqConfig(config map[string]any) (start, step int, err error) {
+func validateSeqConfig(config map[string]any) (start, step int64, err error) {
 	start, step = 1, 1
 
 	// Validate start parameter
 	if val, exists := config["start"]; exists {
-		s, ok := val.(int)
-		if !ok {
-			return 0, 0, fmt.Errorf("seq: 'start' must be an integer, got %T (use: 100, not 100.0)", val)
+		v, err := extractInt(val, "start", "seq")
+		if err != nil {
+			return 0, 0, err
 		}
-		start = s
+		start = v
 	}
 
 	// Validate step parameter
 	if val, exists := config["step"]; exists {
-		st, ok := val.(int)
-		if !ok {
-			return 0, 0, fmt.Errorf("seq: 'step' must be an integer, got %T (use: 5, not 5.0)", val)
+		v, err := extractInt(val, "step", "seq")
+		if err != nil {
+			return 0, 0, err
 		}
-		if st == 0 {
+		if v == 0 {
 			return 0, 0, fmt.Errorf("seq: 'step' cannot be 0 (sequence would not progress)")
 		}
-		step = st
+		step = v
 	}
 
 	return start, step, nil

@@ -69,3 +69,20 @@ func TestFloatGenerator_Range(t *testing.T) {
 		})
 	}
 }
+
+func TestFloatGenerator_OutputType(t *testing.T) {
+	gen, err := Get(floatGen, map[string]any{"min": 10.5, "max": 20.5})
+	if err != nil {
+		t.Fatalf("failed to create generator: %v", err)
+	}
+
+	r := rng.New(testSeed)
+	val, err := gen.Next(r)
+	if err != nil {
+		t.Fatalf("generation error: %v", err)
+	}
+
+	if _, ok := val.(float64); !ok {
+		t.Errorf("expected float64, got %T", val)
+	}
+}

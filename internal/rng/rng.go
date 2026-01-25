@@ -73,3 +73,9 @@ func (r *Rng) Read(p []byte) (int, error) {
 
 	return len(p), nil
 }
+
+// NewZipf creates a Zipf generator with skewness s, offset v, and max value imax.
+// s must be > 1, v must be >= 1
+func (r *Rng) NewZipf(s float64, v float64, imax uint64) *rand.Zipf {
+	return rand.NewZipf(r.r, s, v, imax)
+}

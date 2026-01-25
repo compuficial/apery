@@ -26,20 +26,20 @@ func validateIntConfig(config map[string]any) (int64, int64, error) {
 
 	// Validate min parameter
 	if val, exists := config["min"]; exists {
-		m, ok := val.(int)
-		if !ok {
-			return 0, 0, fmt.Errorf("int: 'min' must be an integer, got %T (use: 10, not 10.0)", val)
+		v, err := extractInt(val, "min", "int")
+		if err != nil {
+			return 0, 0, err
 		}
-		minVal = int64(m)
+		minVal = v
 	}
 
 	// Validate max parameter
 	if val, exists := config["max"]; exists {
-		m, ok := val.(int)
-		if !ok {
-			return 0, 0, fmt.Errorf("int: 'max' must be an integer, got %T (use: 100, not 100.0)", val)
+		v, err := extractInt(val, "max", "int")
+		if err != nil {
+			return 0, 0, err
 		}
-		maxVal = int64(m)
+		maxVal = v
 	}
 
 	// Validate min <= max

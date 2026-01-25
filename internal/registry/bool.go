@@ -24,9 +24,9 @@ func validateBoolConfig(config map[string]any) (float64, error) {
 	}
 
 	// Validate type
-	probability, ok := val.(float64)
-	if !ok {
-		return 0, fmt.Errorf("bool: 'probability' must be a float64, got %T (use: 0.7, not 7 or \"0.7\")", val)
+	probability, err := extractFloat(val, "probability", "bool")
+	if err != nil {
+		return 0, err
 	}
 
 	// Validate range

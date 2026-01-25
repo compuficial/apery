@@ -16,11 +16,12 @@ func TestBoolGenerator_Config(t *testing.T) {
 		{Name: "probability 0.5", Config: map[string]any{"probability": 0.5}, ExpectError: false},
 		{Name: "probability 0.7", Config: map[string]any{"probability": 0.7}, ExpectError: false},
 		{Name: "probability 1.0", Config: map[string]any{"probability": 1.0}, ExpectError: false},
+		{Name: "probability 1 as int", Config: map[string]any{"probability": 1}, ExpectError: false},
+		{Name: "probability 0 as int", Config: map[string]any{"probability": 0}, ExpectError: false},
 
 		// invalid configs
 		{Name: "invalid negative probability", Config: map[string]any{"probability": -0.1}, ExpectError: true},
 		{Name: "invalid probability > 1", Config: map[string]any{"probability": 1.5}, ExpectError: true},
-		{Name: "invalid type integer", Config: map[string]any{"probability": 1}, ExpectError: true},
 		{Name: "invalid type string", Config: map[string]any{"probability": "0.7"}, ExpectError: true},
 	})
 }
