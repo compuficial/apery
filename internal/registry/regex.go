@@ -187,7 +187,7 @@ func validateRegexConfig(config map[string]any) (*syntax.Regexp, int, error) {
 }
 
 func init() {
-	Register("regex", func(config map[string]any) (Generator, error) {
+	MustRegister("regex", func(config map[string]any) (Generator, error) {
 		re, maxRepeat, err := validateRegexConfig(config)
 		if err != nil {
 			return nil, err

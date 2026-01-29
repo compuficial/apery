@@ -51,7 +51,7 @@ func validateFloatConfig(config map[string]any) (float64, float64, error) {
 }
 
 func init() {
-	Register("float", func(config map[string]any) (Generator, error) {
+	MustRegister("float", func(config map[string]any) (Generator, error) {
 		min, max, err := validateFloatConfig(config)
 		if err != nil {
 			return nil, err

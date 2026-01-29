@@ -24,7 +24,7 @@ func (u *ULIDGenerator) Next(r *rng.Rng) (any, error) {
 }
 
 func init() {
-	Register("ulid", func(config map[string]any) (Generator, error) {
+	MustRegister("ulid", func(config map[string]any) (Generator, error) {
 		return &ULIDGenerator{}, nil
 	})
 }

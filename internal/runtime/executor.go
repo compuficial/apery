@@ -7,66 +7,95 @@
 package runtime
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+
 	"apery/internal/plan"
 	"apery/internal/registry"
 	"apery/internal/rng"
 	"apery/internal/writer"
-	"fmt"
 )
 
 type Executor struct {
 	writer writer.Writer
+	logger Logger
 }
 
-func New(w writer.Writer) *Executor {
-	return &Executor{writer: w}
+type fieldRuntime struct {
+	name string
+	gen  registry.Generator
+	seed int64
 }
 
-func (e *Executor) Run(p *plan.Plan) error {
+type Logger interface {
+	Printf(format string, args ...any)
+}
+
+type Option func(*Executor)
+
+func WithLogger(logger Logger) Option {
+	return func(e *Executor) {
+		e.logger = logger
+	}
+}
+
+func New(w writer.Writer, opts ...Option) *Executor {
+	executor := &Executor{writer: w}
+	for _, opt := range opts {
+		opt(executor)
+	}
+	return executor
+}
+
+func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	defer e.closeWithError(&err)
+
 	if err := plan.Validate(p); err != nil {
 		return err
 	}
 
-	for idx, entity := range p.Entities {
-		fmt.Printf("entity: %+v\n", entity)
-		if err := e.runEntity(p.Seed, idx, &entity); err != nil {
-			return fmt.Errorf("failed to generate %s entity: %w", entity.Name, err)
+	for idx := range p.Entities {
+		if err := e.runEntity(ctx, p.Seed, idx, &p.Entities[idx]); err != nil {
+			return fmt.Errorf("failed to generate %s entity: %w", p.Entities[idx].Name, err)
 		}
 	}
 
-	return e.writer.Close()
+	return nil
 }
 
-func (e *Executor) runEntity(seed int64, entityIndex int, entity *plan.EntitySpec) error {
-	// Get generators for each field
-	gens := make([]registry.Generator, len(entity.Fields))
-	// Get rngs for each field
-	rngs := make([]*rng.Rng, len(entity.Fields))
+func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, entity *plan.EntitySpec) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
-	for i, field := range entity.Fields {
-		gen, err := registry.Get(field.Gen, field.Config)
-		if err != nil {
-			return fmt.Errorf("field '%s': %w", field.Name, err)
-		}
-
-		gens[i] = gen
-
-		label := fmt.Sprintf("%s[%d]:%s", entity.Name, entityIndex, field.Name)
-		fieldSeed := rng.Derive(seed, label)
-		rngs[i] = rng.New(fieldSeed)
-		fmt.Printf("%s -> %s (seed: %d)\n", field.Name, field.Gen, fieldSeed)
+	entitySeed := rng.Derive(seed, fmt.Sprintf("%s[%d]", entity.Name, entityIndex))
+	fields, err := e.initFields(entity, entitySeed)
+	if err != nil {
+		return err
 	}
 
 	for row := int64(0); row < entity.Count; row++ {
-		record := writer.NewOrderedMap()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 
-		for i, field := range entity.Fields {
-			val, err := gens[i].Next(rngs[i])
+		record := writer.NewOrderedMap()
+		rowLabel := strconv.FormatInt(row, 10)
+
+		for _, field := range fields {
+			rowSeed := rng.Derive(field.seed, rowLabel)
+			val, err := field.gen.Next(rng.New(rowSeed))
 			if err != nil {
-				return fmt.Errorf(" row %d, field '%s': %w", row, field.Name, err)
+				return fmt.Errorf("row %d, field '%s': %w", row, field.name, err)
 			}
 
-			record.Set(field.Name, val)
+			record.Set(field.name, val)
 		}
 
 		if err := e.writer.WriteRecord(entity.Name, record); err != nil {
@@ -74,4 +103,44 @@ func (e *Executor) runEntity(seed int64, entityIndex int, entity *plan.EntitySpe
 		}
 	}
 	return nil
+}
+
+func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed int64) ([]fieldRuntime, error) {
+	fields := make([]fieldRuntime, 0, len(entity.Fields))
+
+	for _, field := range entity.Fields {
+		gen, err := registry.Get(field.Gen, field.Config)
+		if err != nil {
+			return nil, fmt.Errorf("field '%s': %w", field.Name, err)
+		}
+
+		fieldSeed := rng.Derive(entitySeed, field.Name)
+		fields = append(fields, fieldRuntime{
+			name: field.Name,
+			gen:  gen,
+			seed: fieldSeed,
+		})
+		e.logf("%s -> %s (seed: %d)", field.Name, field.Gen, fieldSeed)
+	}
+
+	return fields, nil
+}
+
+func (e *Executor) closeWithError(err *error) {
+	closeErr := e.writer.Close()
+	if closeErr == nil {
+		return
+	}
+	if *err != nil {
+		*err = errors.Join(*err, closeErr)
+		return
+	}
+	*err = closeErr
+}
+
+func (e *Executor) logf(format string, args ...any) {
+	if e.logger == nil {
+		return
+	}
+	e.logger.Printf(format, args...)
 }

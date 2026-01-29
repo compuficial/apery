@@ -56,7 +56,7 @@ func TestZipfGenerator_Distribution(t *testing.T) {
 		Name              string
 		Config            map[string]any
 		Imax              uint64
-		ExpectLowHeavy    bool   // expect lower values to be more frequent
+		ExpectLowHeavy    bool    // expect lower values to be more frequent
 		LowThresholdRatio float64 // ratio of imax to consider "low"
 	}{
 		{
@@ -184,12 +184,12 @@ func TestZipfGenerator_OutputType(t *testing.T) {
 func TestZipfGenerator_SkewnessEffect(t *testing.T) {
 	// Higher s should result in more concentration on value 0
 	configs := []struct {
-		S         float64
-		MinZeros  int // minimum expected zeros out of distributionSamples
+		S        float64
+		MinZeros int // minimum expected zeros out of distributionSamples
 	}{
-		{S: 1.1, MinZeros: 100},   // low skew: fewer zeros
-		{S: 2.0, MinZeros: 500},   // medium skew: more zeros
-		{S: 3.0, MinZeros: 1000},  // high skew: most zeros
+		{S: 1.1, MinZeros: 100},  // low skew: fewer zeros
+		{S: 2.0, MinZeros: 500},  // medium skew: more zeros
+		{S: 3.0, MinZeros: 1000}, // high skew: most zeros
 	}
 
 	for i := 0; i < len(configs)-1; i++ {

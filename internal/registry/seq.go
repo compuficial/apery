@@ -46,7 +46,7 @@ func validateSeqConfig(config map[string]any) (start, step int64, err error) {
 }
 
 func init() {
-	Register("seq", func(config map[string]any) (Generator, error) {
+	MustRegister("seq", func(config map[string]any) (Generator, error) {
 		start, step, err := validateSeqConfig(config)
 		if err != nil {
 			return nil, err

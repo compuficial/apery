@@ -75,3 +75,15 @@ plan := &plan.Plan{
     },
 }
 ```
+
+You can also run plans via the library API:
+
+```go
+w, err := apery.NewCSVWriter("output.csv")
+if err != nil {
+    return err
+}
+if err := apery.Run(context.Background(), plan, w); err != nil {
+    return err
+}
+```

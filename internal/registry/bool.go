@@ -38,7 +38,7 @@ func validateBoolConfig(config map[string]any) (float64, error) {
 }
 
 func init() {
-	Register("bool", func(config map[string]any) (Generator, error) {
+	MustRegister("bool", func(config map[string]any) (Generator, error) {
 		probability, err := validateBoolConfig(config)
 		if err != nil {
 			return nil, err

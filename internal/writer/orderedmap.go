@@ -19,12 +19,34 @@ func NewOrderedMap() *OrderedMap {
 	}
 }
 
+// Clone returns a shallow copy of the ordered map
+func (om *OrderedMap) Clone() *OrderedMap {
+	clone := NewOrderedMap()
+	for _, key := range om.keys {
+		clone.Set(key, om.values[key])
+	}
+	return clone
+}
+
 // Set adds or updates a key-value pair
 func (om *OrderedMap) Set(key string, value any) {
 	if _, exists := om.values[key]; !exists {
 		om.keys = append(om.keys, key)
 	}
 	om.values[key] = value
+}
+
+// Keys returns a copy of the keys in insertion order
+func (om *OrderedMap) Keys() []string {
+	keys := make([]string, len(om.keys))
+	copy(keys, om.keys)
+	return keys
+}
+
+// Get returns a value for a key and whether it exists
+func (om *OrderedMap) Get(key string) (any, bool) {
+	value, ok := om.values[key]
+	return value, ok
 }
 
 // MarshalJSON implements json.Marshaler interface

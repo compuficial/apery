@@ -95,7 +95,7 @@ func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time
 }
 
 func init() {
-	Register("time", func(config map[string]any) (Generator, error) {
+	MustRegister("time", func(config map[string]any) (Generator, error) {
 		start, end, format, loc, err := validateTimeConfig(config)
 		if err != nil {
 			return nil, err

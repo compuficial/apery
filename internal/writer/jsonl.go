@@ -25,9 +25,10 @@ func NewJSONLWriter(path string) (*JSONLWriter, error) {
 }
 
 func (w *JSONLWriter) WriteRecord(entity string, record *OrderedMap) error {
-	record.Prepend("_entity", entity)
+	out := record.Clone()
+	out.Prepend("_entity", entity)
 
-	data, err := json.Marshal(record)
+	data, err := json.Marshal(out)
 	if err != nil {
 		return fmt.Errorf("marshal json: %w", err)
 	}

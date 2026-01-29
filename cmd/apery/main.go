@@ -1,28 +1,19 @@
-// Apery is a deterministic synthetic data generator built on declarative plans.
-//
-// It generates schema-driven synthetic data using a plan-based approach where the
-// same plan with the same seed always produces identical output. The system uses
-// a registry of pluggable generators (seq, pick, bool, int, float, uuid) and
-// supports multiple output formats.
 package main
 
 import (
-	"apery/internal/plan"
-	"apery/internal/runtime"
-	"apery/internal/writer"
-	"fmt"
+	"apery"
+	"context"
+	"log"
 )
 
 func main() {
-	fmt.Println("Apery starting...")
-
-	p1 := plan.Plan{
+	p1 := apery.Plan{
 		Seed: 4,
-		Entities: []plan.EntitySpec{
+		Entities: []apery.EntitySpec{
 			{
 				Name:  "User",
 				Count: 20,
-				Fields: []plan.FieldSpec{
+				Fields: []apery.FieldSpec{
 					{Name: "id", Gen: "seq"},
 					{Name: "employee_number", Gen: "seq"},
 					{Name: "is_active", Gen: "bool", Config: map[string]any{"probability": 0.7}},
@@ -38,15 +29,14 @@ func main() {
 		},
 	}
 
-	w, err := writer.NewJSONLWriter("output.jsonl")
+	// w, err := apery.NewJSONLWriter("output.jsonl")
+	w, err := apery.NewCSVWriter("output.csv")
 	if err != nil {
-		fmt.Println("Error creating writer:", err)
+		log.Printf("error creating writer: %v", err)
 		return
 	}
 
-	executor := runtime.New(w)
-	err = executor.Run(&p1)
-	if err != nil {
-		fmt.Println("Error:", err)
+	if err := apery.Run(context.Background(), &p1, w); err != nil {
+		log.Printf("error: %v", err)
 	}
 }

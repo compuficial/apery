@@ -76,7 +76,7 @@ func validateZipfConfig(config map[string]any) (float64, float64, uint64, error)
 }
 
 func init() {
-	Register("zipf", func(config map[string]any) (Generator, error) {
+	MustRegister("zipf", func(config map[string]any) (Generator, error) {
 		s, v, imax, err := validateZipfConfig(config)
 		if err != nil {
 			return nil, err

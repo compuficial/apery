@@ -102,7 +102,7 @@ func validateNormalFloatConfig(config map[string]any) (float64, float64, bool, f
 }
 
 func init() {
-	Register("normal_float", func(config map[string]any) (Generator, error) {
+	MustRegister("normal_float", func(config map[string]any) (Generator, error) {
 		mu, sigma, hasClamp, clampMin, clampMax, err := validateNormalFloatConfig(config)
 		if err != nil {
 			return nil, err

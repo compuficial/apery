@@ -11,10 +11,10 @@ Apery is a synthetic data generator (SDG) built in Go. It generates deterministi
 ### Build and Run
 ```bash
 # Build the project
-go build -o apery .
+go build -o apery ./cmd/apery
 
 # Run the generator
-go run main.go
+go run ./cmd/apery
 
 # Run with Go modules
 go mod tidy  # Install/update dependencies
@@ -44,10 +44,10 @@ go test ./internal/registry
    - `FieldSpec`: Individual field with generator name and config
 
 2. **Registry** (`internal/registry`): Generator factory and plugin system
-   - Global registry pattern with `Register()` and `Get()`
-   - Generators use `init()` for auto-registration
+   - Global registry pattern with `Register()` (returns error), `MustRegister()` (panic on error), and `Get()`
+   - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
-   - Built-in generators: `seq`, `pick`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`
+   - Built-in generators: `seq`, `pick` (values|file|url with allowlist), `bool`, `int`, `float`, `uuid`, `ulid`, `time`
 
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
    - Executes plans by iterating entities and fields
@@ -57,6 +57,7 @@ go test ./internal/registry
 4. **Writer** (`internal/writer`): Output abstraction
    - `Writer` interface with `WriteRecord()` and `Close()`
    - `JSONLWriter`: Streams newline-delimited JSON to file
+   - `CSVWriter`: Streams CSV rows with a header
    - Uses `OrderedMap` to preserve field order in output
 
 5. **RNG** (`internal/rng`): Deterministic random number generation
@@ -90,7 +91,7 @@ All generators:
 Example from `internal/registry/pick.go`:
 ```go
 func init() {
-    Register("pick", func(config map[string]any) (Generator, error) {
+    MustRegister("pick", func(config map[string]any) (Generator, error) {
         values := config["values"].([]any)
         return &PickGenerator{values: values}, nil
     })
@@ -108,11 +109,12 @@ The registry is global and thread-safe via init-time registration.
 
 ## Key Files
 
-- `main.go`: Entry point with example plan
+- `cmd/apery/main.go`: Entry point with example plan
 - `internal/plan/plan.go`: Data structures for declarative plans
 - `internal/registry/registry.go`: Generator registry core
 - `internal/runtime/executor.go`: Execution orchestrator
 - `internal/writer/jsonl.go`: JSONL output writer
+- `internal/writer/csv.go`: CSV output writer
 - `internal/rng/rng.go`: Deterministic RNG with seed derivation
 
 ## Design Document

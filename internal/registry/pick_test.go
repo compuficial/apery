@@ -2,6 +2,9 @@ package registry
 
 import (
 	"apery/internal/rng"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"testing"
 )
@@ -37,6 +40,7 @@ func TestPickGenerator_Config(t *testing.T) {
 
 		// invalid configs - both specified
 		{Name: "both values and file", Config: map[string]any{"values": []any{"a"}, "file": "path.txt"}, ExpectError: true},
+		{Name: "url without allowlist", Config: map[string]any{"url": "https://example.com/values.txt"}, ExpectError: true},
 	})
 }
 
@@ -131,5 +135,58 @@ func TestPickGenerator_ValuesOnly(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPickGenerator_URLLoading(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("alpha\n\nbeta\n gamma \n"))
+	}))
+	defer server.Close()
+
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+
+	gen, err := Get(pickGen, map[string]any{
+		"url":       server.URL,
+		"allowlist": []any{parsed.Hostname()},
+	})
+	if err != nil {
+		t.Fatalf("failed to create generator: %v", err)
+	}
+
+	validSet := map[any]bool{"alpha": true, "beta": true, "gamma": true}
+	r := rng.New(testSeed)
+
+	for i := range testIterations {
+		val, err := gen.Next(r)
+		if err != nil {
+			t.Fatalf("generation error at %d: %v", i, err)
+		}
+		if !validSet[val] {
+			t.Errorf("got %q which is not in expected values at index %d", val, i)
+		}
+	}
+}
+
+func TestPickGenerator_URLAllowlist(t *testing.T) {
+	_, err := Get(pickGen, map[string]any{
+		"url":       "https://example.com/values.txt",
+		"allowlist": []any{"not-example.com"},
+	})
+	if err == nil {
+		t.Fatal("expected error for non-allowlisted host")
+	}
+}
+
+func TestPickGenerator_URLScheme(t *testing.T) {
+	_, err := Get(pickGen, map[string]any{
+		"url":       "ftp://example.com/values.txt",
+		"allowlist": []any{"example.com"},
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid url scheme")
 	}
 }

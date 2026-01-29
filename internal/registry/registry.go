@@ -25,15 +25,32 @@ type Factory func(config map[string]any) (Generator, error)
 var generators = make(map[string]Factory)
 
 // Register adds a generator
-func Register(name string, factory Factory) {
+func Register(name string, factory Factory) error {
+	if name == "" {
+		return fmt.Errorf("registry: generator name is empty")
+	}
+	if factory == nil {
+		return fmt.Errorf("registry: factory is nil for %q", name)
+	}
+	if _, exists := generators[name]; exists {
+		return fmt.Errorf("registry: generator %q already registered", name)
+	}
 	generators[name] = factory
+	return nil
+}
+
+// MustRegister adds a generator and panics on error
+func MustRegister(name string, factory Factory) {
+	if err := Register(name, factory); err != nil {
+		panic(err)
+	}
 }
 
 // Get retrieves a generator by name
 func Get(name string, config map[string]any) (Generator, error) {
 	factory, ok := generators[name]
 	if !ok {
-		return nil, fmt.Errorf("generator %q not found", name)
+		return nil, fmt.Errorf("registry: generator %q not found", name)
 	}
 	return factory(config)
 }

@@ -51,7 +51,7 @@ func validateIntConfig(config map[string]any) (int64, int64, error) {
 }
 
 func init() {
-	Register("int", func(config map[string]any) (Generator, error) {
+	MustRegister("int", func(config map[string]any) (Generator, error) {
 		min, max, err := validateIntConfig(config)
 		if err != nil {
 			return nil, err

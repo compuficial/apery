@@ -38,7 +38,7 @@ func (u *UUIDGenerator) Next(r *rng.Rng) (any, error) {
 }
 
 func init() {
-	Register("uuid", func(config map[string]any) (Generator, error) {
+	MustRegister("uuid", func(config map[string]any) (Generator, error) {
 		return &UUIDGenerator{}, nil
 	})
 }

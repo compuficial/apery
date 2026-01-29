@@ -2,16 +2,16 @@
 
 # Build the binary
 build:
-	go build -o bin/apery main.go
+	go build -o bin/apery ./cmd/apery
 
 # Run the program
 run:
-	go run main.go
+	go run ./cmd/apery
 
 # Clean build artifacts
 clean:
 	rm -rf bin/
-	rm -f output.jsonl
+	rm -f output.*
 
 # Format code
 fmt:

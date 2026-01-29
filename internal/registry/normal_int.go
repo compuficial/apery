@@ -98,7 +98,7 @@ func validateNormalIntConfig(config map[string]any) (float64, float64, bool, int
 }
 
 func init() {
-	Register("normal_int", func(config map[string]any) (Generator, error) {
+	MustRegister("normal_int", func(config map[string]any) (Generator, error) {
 		mu, sigma, hasClamp, clampMin, clampMax, err := validateNormalIntConfig(config)
 		if err != nil {
 			return nil, err

@@ -26,14 +26,14 @@ func extractInt(val any, param, gen string) (int64, error) {
 }
 
 // extractUint extracts a uint64 from a config value.
-// Only accepts int type and validates that the value is positive.
+// Only accepts int type and validates that the value is non-negative.
 func extractUint(val any, param, gen string) (uint64, error) {
 	i, ok := val.(int)
 	if !ok {
 		return 0, fmt.Errorf("%s: '%s' must be an integer, got %T (use: 10, not 10.0)", gen, param, val)
 	}
 	if i < 0 {
-		return 0, fmt.Errorf("%s: '%s' must be positive, got %d", gen, param, i)
+		return 0, fmt.Errorf("%s: '%s' must be non-negative, got %d", gen, param, i)
 	}
 	return uint64(i), nil
 }
