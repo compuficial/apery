@@ -37,6 +37,7 @@ func validateBoolConfig(config map[string]any) (float64, error) {
 	return probability, nil
 }
 
+// init registers the bool generator.
 func init() {
 	MustRegister("bool", func(config map[string]any) (Generator, error) {
 		probability, err := validateBoolConfig(config)

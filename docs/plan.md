@@ -22,6 +22,7 @@ Items are grouped by spec sections and roadmap phases.
     - [x] zipf(s,vmax)
     - [x] bool(p)
     - [x] regex(pattern)
+      - [x] Enforce supported subset (anchor placement rules, no word boundaries) and document constraints in spec
     - [x] time(start,end,tz)
     - [x] uuid_v4()
     - [x] ulid()

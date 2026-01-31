@@ -5,7 +5,7 @@
 The `regex` generator produces random strings that match a given regular expression pattern. This is useful for generating formatted data like phone numbers, license plates, product codes, etc.
 
 **Spec reference:** `sdg.md` section 5.1
-> `regex(pattern)` — generates strings matching regex pattern
+> `regex(pattern)` — generates strings matching a supported regex pattern subset
 
 ## Design Decision: Custom Implementation
 
@@ -443,13 +443,15 @@ When `syntax.Parse` with `syntax.Perl` flag encounters `\d`, `\w`, `\s`, it expa
 
 The parser handles this automatically - we just see `OpCharClass` with the appropriate ranges.
 
+**Character domain note:** the generator currently samples `.` from printable ASCII (code points 32–126). Character classes are rune-based and can cover full Unicode ranges, but `.` is intentionally limited for readability.
+
 ---
 
 ## Edge Cases and Limitations
 
 ### Handled
 
-1. **Unbounded quantifiers** - Capped by `max_repeat`
+1. **Unbounded quantifiers** - Capped by `max_repeat` (explicit max is also capped; error if min exceeds `max_repeat`)
 2. **Empty alternatives** - `(|a)` can match empty string
 3. **Nested quantifiers** - `(a+)+` works recursively
 4. **Unicode ranges** - Rune-based, supports full Unicode
@@ -458,11 +460,8 @@ The parser handles this automatically - we just see `OpCharClass` with the appro
 
 1. **Backreferences** - `\1` - Cannot generate without tracking captures
 2. **Lookahead/lookbehind** - Would need complex state tracking
-
-### Graceful Handling
-
-1. **Anchors** - Ignored (return empty string)
-2. **Word boundaries** - Ignored (return empty string)
+3. **Word boundaries** - `\b` / `\B` are rejected (requires boundary-aware generation)
+4. **Anchors in unsafe positions** - `^` / `$` are only allowed at the start/end of a concatenation and never under quantifiers
 
 ---
 
@@ -479,7 +478,7 @@ The parser handles this automatically - we just see `OpCharClass` with the appro
   - [ ] Handle `OpAlternate`
   - [ ] Handle `OpCapture`
   - [ ] Handle `OpStar`, `OpPlus`, `OpQuest`, `OpRepeat`
-  - [ ] Handle anchors (return empty)
+  - [ ] Validate anchor placement (only at concatenation edges; reject under quantifiers)
   - [ ] Handle `OpNoMatch` (return error)
   - [ ] Handle `OpEmptyMatch`
   - [ ] Register generator in `init()`

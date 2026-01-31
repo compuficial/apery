@@ -16,10 +16,12 @@ type IntGenerator struct {
 	max int64
 }
 
+// Next returns the next generated int value.
 func (i *IntGenerator) Next(r *rng.Rng) (any, error) {
 	return r.IntRange(i.min, i.max), nil
 }
 
+// validateIntConfig validates and parses config for int generator.
 func validateIntConfig(config map[string]any) (int64, int64, error) {
 	minVal := int64(defaultIntMin)
 	maxVal := int64(defaultIntMax)
@@ -50,6 +52,7 @@ func validateIntConfig(config map[string]any) (int64, int64, error) {
 	return minVal, maxVal, nil
 }
 
+// init registers the int generator.
 func init() {
 	MustRegister("int", func(config map[string]any) (Generator, error) {
 		min, max, err := validateIntConfig(config)

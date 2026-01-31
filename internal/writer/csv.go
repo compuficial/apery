@@ -13,6 +13,7 @@ type CSVWriter struct {
 	initd bool
 }
 
+// NewCSVWriter creates a CSV writer at the given path.
 func NewCSVWriter(path string) (*CSVWriter, error) {
 	f, err := os.Create(path)
 	if err != nil {
@@ -21,6 +22,7 @@ func NewCSVWriter(path string) (*CSVWriter, error) {
 	return &CSVWriter{file: f, w: csv.NewWriter(f)}, nil
 }
 
+// WriteRecord writes a CSV row and emits a header on the first record.
 func (w *CSVWriter) WriteRecord(entity string, record *OrderedMap) error {
 	if record == nil {
 		return fmt.Errorf("csv: record is nil")
@@ -58,6 +60,7 @@ func (w *CSVWriter) WriteRecord(entity string, record *OrderedMap) error {
 	return nil
 }
 
+// Close flushes buffered data and closes the file.
 func (w *CSVWriter) Close() error {
 	w.w.Flush()
 	if err := w.w.Error(); err != nil {

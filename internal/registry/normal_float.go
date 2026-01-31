@@ -20,6 +20,7 @@ type NormalFloatGenerator struct {
 	clampMax float64
 }
 
+// Next returns the next generated float value.
 func (g *NormalFloatGenerator) Next(r *rng.Rng) (any, error) {
 	val := g.mu + g.sigma*r.NormFloat64()
 
@@ -29,6 +30,7 @@ func (g *NormalFloatGenerator) Next(r *rng.Rng) (any, error) {
 	return val, nil
 }
 
+// validateNormalFloatConfig validates and parses config for normal_float generator.
 func validateNormalFloatConfig(config map[string]any) (float64, float64, bool, float64, float64, error) {
 	mu := defaultNormalMu
 	sigma := defaultNormalSigma
@@ -101,6 +103,7 @@ func validateNormalFloatConfig(config map[string]any) (float64, float64, bool, f
 	return mu, sigma, hasClamp, clampMin, clampMax, nil
 }
 
+// init registers the normal_float generator.
 func init() {
 	MustRegister("normal_float", func(config map[string]any) (Generator, error) {
 		mu, sigma, hasClamp, clampMin, clampMax, err := validateNormalFloatConfig(config)

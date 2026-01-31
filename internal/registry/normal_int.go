@@ -15,6 +15,7 @@ type NormalIntGenerator struct {
 	clampMax int64
 }
 
+// Next returns the next generated int value.
 func (g *NormalIntGenerator) Next(r *rng.Rng) (any, error) {
 	val := g.mu + g.sigma*r.NormFloat64()
 	rounded := int64(math.Round(val))
@@ -25,6 +26,7 @@ func (g *NormalIntGenerator) Next(r *rng.Rng) (any, error) {
 	return rounded, nil
 }
 
+// validateNormalIntConfig validates and parses config for normal_int generator.
 func validateNormalIntConfig(config map[string]any) (float64, float64, bool, int64, int64, error) {
 	mu := defaultNormalMu
 	sigma := defaultNormalSigma
@@ -97,6 +99,7 @@ func validateNormalIntConfig(config map[string]any) (float64, float64, bool, int
 	return mu, sigma, hasClamp, clampMin, clampMax, nil
 }
 
+// init registers the normal_int generator.
 func init() {
 	MustRegister("normal_int", func(config map[string]any) (Generator, error) {
 		mu, sigma, hasClamp, clampMin, clampMax, err := validateNormalIntConfig(config)

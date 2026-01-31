@@ -45,6 +45,7 @@ func validateSeqConfig(config map[string]any) (start, step int64, err error) {
 	return start, step, nil
 }
 
+// init registers the seq generator.
 func init() {
 	MustRegister("seq", func(config map[string]any) (Generator, error) {
 		start, step, err := validateSeqConfig(config)

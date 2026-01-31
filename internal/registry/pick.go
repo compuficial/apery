@@ -124,6 +124,7 @@ func loadPickURL(urlVal any, allowlistVal any) ([]any, error) {
 	return loadPickLines(reader, "url")
 }
 
+// parseAllowlist reads and validates the allowlist array.
 func parseAllowlist(val any) ([]string, error) {
 	if val == nil {
 		return nil, nil
@@ -146,6 +147,7 @@ func parseAllowlist(val any) ([]string, error) {
 	}
 }
 
+// filterAllowlist drops empty host entries.
 func filterAllowlist(list []string) []string {
 	out := make([]string, 0, len(list))
 	for _, item := range list {
@@ -157,6 +159,7 @@ func filterAllowlist(list []string) []string {
 	return out
 }
 
+// hostAllowed reports whether a URL host is on the allowlist.
 func hostAllowed(u *url.URL, allowlist []string) bool {
 	host := u.Hostname()
 	fullHost := u.Host
@@ -168,6 +171,7 @@ func hostAllowed(u *url.URL, allowlist []string) bool {
 	return false
 }
 
+// validateURL enforces URL scheme and allowlist requirements.
 func validateURL(u *url.URL, allowlist []string) error {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("pick: url scheme must be http or https")
@@ -181,6 +185,7 @@ func validateURL(u *url.URL, allowlist []string) error {
 	return nil
 }
 
+// validateHTTPStatus returns an error for non-2xx responses.
 func validateHTTPStatus(status int) error {
 	if status < 200 || status >= 300 {
 		return fmt.Errorf("pick: url returned status %d", status)
@@ -188,6 +193,7 @@ func validateHTTPStatus(status int) error {
 	return nil
 }
 
+// loadPickLines reads non-empty lines and returns them as values.
 func loadPickLines(r io.Reader, source string) ([]any, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
@@ -212,6 +218,7 @@ func loadPickLines(r io.Reader, source string) ([]any, error) {
 	return values, nil
 }
 
+// init registers the pick generator.
 func init() {
 	MustRegister("pick", func(config map[string]any) (Generator, error) {
 		values, err := validatePickConfig(config)

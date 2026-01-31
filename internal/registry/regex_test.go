@@ -32,6 +32,10 @@ func TestRegexGenerator_Config(t *testing.T) {
 		{Name: "invalid max_repeat type float", Config: map[string]any{"pattern": "a", "max_repeat": 5.0}, ExpectError: true},
 		{Name: "max_repeat zero", Config: map[string]any{"pattern": "a", "max_repeat": 0}, ExpectError: true},
 		{Name: "max_repeat negative", Config: map[string]any{"pattern": "a", "max_repeat": -1}, ExpectError: true},
+		{Name: "word boundary unsupported", Config: map[string]any{"pattern": `foo\bbar`}, ExpectError: true},
+		{Name: "anchor inside quantifier", Config: map[string]any{"pattern": `(^a)+`}, ExpectError: true},
+		{Name: "begin anchor not at start", Config: map[string]any{"pattern": `a(^b)`}, ExpectError: true},
+		{Name: "end anchor not at end", Config: map[string]any{"pattern": `(a$)b`}, ExpectError: true},
 	})
 }
 
@@ -70,7 +74,7 @@ func TestRegexGenerator_OutputMatchesPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			gen, err := Get(regexGen, map[string]any{"pattern": tt.Pattern, "max_repeat": 5})
+			gen, err := Get(regexGen, map[string]any{"pattern": tt.Pattern, "max_repeat": 10})
 			if err != nil {
 				t.Fatalf("failed to create generator: %v", err)
 			}
@@ -107,6 +111,7 @@ func TestRegexGenerator_QuantifierBounds(t *testing.T) {
 		{Name: "exact", Pattern: "a{3}", MaxRepeat: 10, MinLen: 3, MaxLen: 3},
 		{Name: "range", Pattern: "a{2,4}", MaxRepeat: 10, MinLen: 2, MaxLen: 4},
 		{Name: "unbounded capped", Pattern: "a{2,}", MaxRepeat: 5, MinLen: 2, MaxLen: 5},
+		{Name: "explicit max capped", Pattern: "a{5,1000}", MaxRepeat: 10, MinLen: 5, MaxLen: 10},
 	}
 
 	for _, tt := range tests {
@@ -131,6 +136,18 @@ func TestRegexGenerator_QuantifierBounds(t *testing.T) {
 	}
 }
 
+func TestRegexGenerator_MaxRepeatMinError(t *testing.T) {
+	gen, err := Get(regexGen, map[string]any{"pattern": "a{100,}", "max_repeat": 10})
+	if err != nil {
+		t.Fatalf("failed to create generator: %v", err)
+	}
+
+	r := rng.New(testSeed)
+	if _, err := gen.Next(r); err == nil {
+		t.Fatalf("expected error when min exceeds max_repeat")
+	}
+}
+
 func TestRegexGenerator_Literal(t *testing.T) {
 	// Literal patterns should always produce the same output
 	gen, err := Get(regexGen, map[string]any{"pattern": "hello world"})
@@ -152,7 +169,7 @@ func TestRegexGenerator_Literal(t *testing.T) {
 
 func TestRegexGenerator_CharClass(t *testing.T) {
 	// Test that character class produces only valid characters
-	gen, err := Get(regexGen, map[string]any{"pattern": "[abc]{100}"})
+	gen, err := Get(regexGen, map[string]any{"pattern": "[abc]{100}", "max_repeat": 100})
 	if err != nil {
 		t.Fatalf("failed to create generator: %v", err)
 	}

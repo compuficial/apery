@@ -16,10 +16,12 @@ type FloatGenerator struct {
 	max float64
 }
 
+// Next returns the next generated float value.
 func (i *FloatGenerator) Next(r *rng.Rng) (any, error) {
 	return r.FloatRange(i.min, i.max), nil
 }
 
+// validateFloatConfig validates and parses config for float generator.
 func validateFloatConfig(config map[string]any) (float64, float64, error) {
 	minVal := defaultFloatMin
 	maxVal := defaultFloatMax
@@ -50,6 +52,7 @@ func validateFloatConfig(config map[string]any) (float64, float64, error) {
 	return minVal, maxVal, nil
 }
 
+// init registers the float generator.
 func init() {
 	MustRegister("float", func(config map[string]any) (Generator, error) {
 		min, max, err := validateFloatConfig(config)

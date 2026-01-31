@@ -75,6 +75,7 @@ func validateZipfConfig(config map[string]any) (float64, float64, uint64, error)
 	return s, v, imax, nil
 }
 
+// init registers the zipf generator.
 func init() {
 	MustRegister("zipf", func(config map[string]any) (Generator, error) {
 		s, v, imax, err := validateZipfConfig(config)

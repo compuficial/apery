@@ -12,6 +12,7 @@ type JSONLWriter struct {
 	buf  *bufio.Writer
 }
 
+// NewJSONLWriter creates a JSONL writer at the given path.
 func NewJSONLWriter(path string) (*JSONLWriter, error) {
 	f, err := os.Create(path)
 	if err != nil {
@@ -24,6 +25,7 @@ func NewJSONLWriter(path string) (*JSONLWriter, error) {
 	}, nil
 }
 
+// WriteRecord writes a single JSONL record with an _entity field.
 func (w *JSONLWriter) WriteRecord(entity string, record *OrderedMap) error {
 	out := record.Clone()
 	out.Prepend("_entity", entity)
@@ -44,6 +46,7 @@ func (w *JSONLWriter) WriteRecord(entity string, record *OrderedMap) error {
 	return nil
 }
 
+// Close flushes buffered data and closes the file.
 func (w *JSONLWriter) Close() error {
 	if err := w.buf.Flush(); err != nil {
 		return err

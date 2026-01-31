@@ -24,6 +24,7 @@ const (
 // UUIDGenerator generates random UUID v4 strings
 type UUIDGenerator struct{}
 
+// Next returns the next generated UUID string.
 func (u *UUIDGenerator) Next(r *rng.Rng) (any, error) {
 	var bytes [uuidByteLength]byte
 	for i := range uuidByteLength {
@@ -37,6 +38,7 @@ func (u *UUIDGenerator) Next(r *rng.Rng) (any, error) {
 	return uuid.UUID(bytes).String(), nil
 }
 
+// init registers the uuid generator.
 func init() {
 	MustRegister("uuid", func(config map[string]any) (Generator, error) {
 		return &UUIDGenerator{}, nil

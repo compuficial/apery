@@ -24,6 +24,7 @@ type TimeGenerator struct {
 	loc    *time.Location
 }
 
+// Next returns the next generated timestamp string.
 func (t *TimeGenerator) Next(r *rng.Rng) (any, error) {
 	// Note: Uses Unix timestamps (seconds), so subsecond precision is lost
 	start := t.start.Unix()
@@ -34,6 +35,7 @@ func (t *TimeGenerator) Next(r *rng.Rng) (any, error) {
 	return localTime.Format(t.format), nil
 }
 
+// validateTimeConfig validates and parses config for time generator.
 func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *time.Location, error) {
 	tzStr := defaultTimezone
 	if tz, ok := config["tz"].(string); ok {
@@ -75,6 +77,7 @@ func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *t
 	return start, end, format, loc, nil
 }
 
+// parseTimeFromConfig reads and parses a time value from config.
 func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time, format string) (time.Time, error) {
 	val, exists := config[key]
 	if !exists {
@@ -94,6 +97,7 @@ func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time
 	return parsed, nil
 }
 
+// init registers the time generator.
 func init() {
 	MustRegister("time", func(config map[string]any) (Generator, error) {
 		start, end, format, loc, err := validateTimeConfig(config)

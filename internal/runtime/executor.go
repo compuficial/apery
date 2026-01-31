@@ -35,12 +35,14 @@ type Logger interface {
 
 type Option func(*Executor)
 
+// WithLogger configures a logger for execution diagnostics.
 func WithLogger(logger Logger) Option {
 	return func(e *Executor) {
 		e.logger = logger
 	}
 }
 
+// New constructs an Executor with the provided writer and options.
 func New(w writer.Writer, opts ...Option) *Executor {
 	executor := &Executor{writer: w}
 	for _, opt := range opts {
@@ -49,6 +51,7 @@ func New(w writer.Writer, opts ...Option) *Executor {
 	return executor
 }
 
+// Run executes a plan and writes generated records via the writer.
 func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -69,6 +72,7 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 	return nil
 }
 
+// runEntity generates all rows for a single entity.
 func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, entity *plan.EntitySpec) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -105,6 +109,7 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, e
 	return nil
 }
 
+// initFields initializes generators and seeds for entity fields.
 func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed int64) ([]fieldRuntime, error) {
 	fields := make([]fieldRuntime, 0, len(entity.Fields))
 
@@ -126,6 +131,7 @@ func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed int64) ([]fiel
 	return fields, nil
 }
 
+// closeWithError closes the writer and joins errors if needed.
 func (e *Executor) closeWithError(err *error) {
 	closeErr := e.writer.Close()
 	if closeErr == nil {
@@ -138,6 +144,7 @@ func (e *Executor) closeWithError(err *error) {
 	*err = closeErr
 }
 
+// logf writes formatted logs if a logger is configured.
 func (e *Executor) logf(format string, args ...any) {
 	if e.logger == nil {
 		return
