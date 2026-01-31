@@ -54,3 +54,12 @@ func Get(name string, config map[string]any) (Generator, error) {
 	}
 	return factory(config)
 }
+
+// FactoryFor retrieves the factory function by generator name.
+func FactoryFor(name string) (Factory, error) {
+	factory, ok := generators[name]
+	if !ok {
+		return nil, fmt.Errorf("registry: generator %q not found", name)
+	}
+	return factory, nil
+}

@@ -59,7 +59,7 @@ func TestBoolGenerator_Distribution(t *testing.T) {
 				t.Fatalf("failed to create generator: %v", err)
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 			trueCount := 0
 
 			for i := range distributionSamples {

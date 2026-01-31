@@ -82,7 +82,7 @@ func TestZipfGenerator_Distribution(t *testing.T) {
 				t.Fatalf("failed to create generator: %v", err)
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 			lowCount := 0
 			lowThreshold := int64(float64(tt.Imax) * tt.LowThresholdRatio)
 
@@ -127,7 +127,7 @@ func TestZipfGenerator_Range(t *testing.T) {
 				t.Fatalf("failed to create generator: %v", err)
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 
 			for i := range testIterations {
 				val, err := gen.Next(r)
@@ -150,7 +150,7 @@ func TestZipfGenerator_ImaxOne(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 
 	for i := range testIterations {
 		val, err := gen.Next(r)
@@ -170,7 +170,7 @@ func TestZipfGenerator_OutputType(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 	val, err := gen.Next(r)
 	if err != nil {
 		t.Fatalf("generation error: %v", err)
@@ -192,15 +192,15 @@ func TestZipfGenerator_SkewnessEffect(t *testing.T) {
 		{S: 3.0, MinZeros: 1000}, // high skew: most zeros
 	}
 
-	for i := 0; i < len(configs)-1; i++ {
+	for i := range len(configs) - 1 {
 		low := configs[i]
 		high := configs[i+1]
 
 		genLow, _ := Get(zipfGen, map[string]any{"s": low.S, "imax": 100})
 		genHigh, _ := Get(zipfGen, map[string]any{"s": high.S, "imax": 100})
 
-		rLow := rng.New(testSeed)
-		rHigh := rng.New(testSeed)
+		rLow := rng.New(rng.SeedFromInt64(testSeed))
+		rHigh := rng.New(rng.SeedFromInt64(testSeed))
 
 		zerosLow := 0
 		zerosHigh := 0

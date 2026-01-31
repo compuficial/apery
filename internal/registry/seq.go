@@ -8,6 +8,7 @@ import (
 // SeqGenerator generates sequential integers starting from 1
 type SeqGenerator struct {
 	current int64
+	start   int64
 	step    int64
 }
 
@@ -15,6 +16,15 @@ type SeqGenerator struct {
 func (s *SeqGenerator) Next(r *rng.Rng) (any, error) {
 	s.current += s.step
 	return s.current, nil
+}
+
+// SeekRow positions the sequence at the specified zero-based row index.
+func (s *SeqGenerator) SeekRow(row int64) error {
+	if row < 0 {
+		return fmt.Errorf("seq: row index must be >= 0")
+	}
+	s.current = s.start - s.step + s.step*row
+	return nil
 }
 
 // validateSeqConfig validates and parses config for seq generator
@@ -52,6 +62,6 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		return &SeqGenerator{current: start - step, step: step}, nil
+		return &SeqGenerator{current: start - step, start: start, step: step}, nil
 	})
 }

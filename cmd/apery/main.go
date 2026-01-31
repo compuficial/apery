@@ -2,6 +2,7 @@ package main
 
 import (
 	"apery"
+	"apery/internal/runtime"
 	"context"
 	"log"
 )
@@ -12,7 +13,7 @@ func main() {
 		Entities: []apery.EntitySpec{
 			{
 				Name:  "User",
-				Count: 20,
+				Count: 20_000,
 				Fields: []apery.FieldSpec{
 					{Name: "id", Gen: "seq"},
 					{Name: "employee_number", Gen: "seq"},
@@ -29,14 +30,17 @@ func main() {
 		},
 	}
 
-	// w, err := apery.NewJSONLWriter("output.jsonl")
-	w, err := apery.NewCSVWriter("output.csv")
+	w, err := apery.NewJSONLWriter("output.jsonl")
+	// w, err := apery.NewCSVWriter("output.csv")
 	if err != nil {
 		log.Printf("error creating writer: %v", err)
 		return
 	}
 
-	if err := apery.Run(context.Background(), &p1, w); err != nil {
+	if err := apery.Run(context.Background(), &p1, w,
+		runtime.WithWorkers(16),
+		runtime.WithChunkSize(10000),
+	); err != nil {
 		log.Printf("error: %v", err)
 	}
 }

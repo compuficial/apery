@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"testing"
 
 	"apery/internal/plan"
@@ -31,6 +30,37 @@ func (w *valueWriter) WriteRecord(entity string, record *writer.OrderedMap) erro
 }
 
 func (w *valueWriter) Close() error {
+	return nil
+}
+
+type dualFieldWriter struct {
+	ids    []int64
+	scores []int64
+}
+
+func (w *dualFieldWriter) WriteRecord(entity string, record *writer.OrderedMap) error {
+	idVal, ok := record.Get("id")
+	if !ok {
+		return fmt.Errorf("missing field: id")
+	}
+	scoreVal, ok := record.Get("score")
+	if !ok {
+		return fmt.Errorf("missing field: score")
+	}
+	id, ok := idVal.(int64)
+	if !ok {
+		return fmt.Errorf("id: expected int64, got %T", idVal)
+	}
+	score, ok := scoreVal.(int64)
+	if !ok {
+		return fmt.Errorf("score: expected int64, got %T", scoreVal)
+	}
+	w.ids = append(w.ids, id)
+	w.scores = append(w.scores, score)
+	return nil
+}
+
+func (w *dualFieldWriter) Close() error {
 	return nil
 }
 
@@ -87,11 +117,11 @@ func TestExecutorRowSeedDeterminism(t *testing.T) {
 		t.Fatalf("get generator: %v", err)
 	}
 
-	entitySeed := rng.Derive(p.Seed, "User[0]")
+	entitySeed := rng.Derive(rng.SeedFromInt64(p.Seed), "User[0]")
 	fieldSeed := rng.Derive(entitySeed, "score")
 
 	for row := int64(0); row < p.Entities[0].Count; row++ {
-		rowSeed := rng.Derive(fieldSeed, strconv.FormatInt(row, 10))
+		rowSeed := rng.DeriveIndex(fieldSeed, row)
 		val, err := gen.Next(rng.New(rowSeed))
 		if err != nil {
 			t.Fatalf("row %d: %v", row, err)
@@ -183,5 +213,58 @@ func TestExecutorLogger(t *testing.T) {
 	}
 	if logger.calls == 0 {
 		t.Fatal("expected logger to be called")
+	}
+}
+
+func TestExecutorChunkDeterminism(t *testing.T) {
+	p := plan.Plan{
+		Seed: 7,
+		Entities: []plan.EntitySpec{
+			{
+				Name:  "Event",
+				Count: 50,
+				Fields: []plan.FieldSpec{
+					{Name: "id", Gen: "seq", Config: map[string]any{"start": 1, "step": 1}},
+					{Name: "score", Gen: "int", Config: map[string]any{"min": 1, "max": 10}},
+				},
+			},
+		},
+	}
+
+	run := func(workers int, chunkSize int64) ([]int64, []int64, error) {
+		w := &dualFieldWriter{}
+		executor := New(w, WithWorkers(workers), WithChunkSize(chunkSize))
+		if err := executor.Run(context.Background(), &p); err != nil {
+			return nil, nil, err
+		}
+		return w.ids, w.scores, nil
+	}
+
+	idA, scoreA, err := run(1, 10)
+	if err != nil {
+		t.Fatalf("run A: %v", err)
+	}
+	idB, scoreB, err := run(4, 7)
+	if err != nil {
+		t.Fatalf("run B: %v", err)
+	}
+
+	if len(idA) != len(idB) || len(scoreA) != len(scoreB) {
+		t.Fatalf("mismatched lengths: ids %d/%d scores %d/%d", len(idA), len(idB), len(scoreA), len(scoreB))
+	}
+	for i := range idA {
+		if idA[i] != idB[i] {
+			t.Fatalf("seq mismatch at %d: %d != %d", i, idA[i], idB[i])
+		}
+		if scoreA[i] != scoreB[i] {
+			t.Fatalf("score mismatch at %d: %d != %d", i, scoreA[i], scoreB[i])
+		}
+	}
+
+	for i := range idA {
+		expected := int64(i + 1)
+		if idA[i] != expected {
+			t.Fatalf("seq order mismatch at %d: expected %d, got %d", i, expected, idA[i])
+		}
 	}
 }

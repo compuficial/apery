@@ -66,7 +66,7 @@ func TestNormalFloatGenerator_Distribution(t *testing.T) {
 				t.Fatalf("failed to create generator: %v", err)
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 			samples := make([]float64, distributionSamples)
 
 			for i := range distributionSamples {
@@ -112,7 +112,7 @@ func TestNormalFloatGenerator_SigmaZero(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 
 	for i := range testIterations {
 		val, err := gen.Next(r)
@@ -165,7 +165,7 @@ func TestNormalFloatGenerator_Clamping(t *testing.T) {
 				t.Fatalf("failed to create generator: %v", err)
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 
 			for i := range testIterations {
 				val, err := gen.Next(r)
@@ -187,7 +187,7 @@ func TestNormalFloatGenerator_OutputType(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 	val, err := gen.Next(r)
 	if err != nil {
 		t.Fatalf("generation error: %v", err)

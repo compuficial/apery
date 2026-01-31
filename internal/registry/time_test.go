@@ -131,7 +131,7 @@ func TestTimeGenerator_Range(t *testing.T) {
 				t.Fatalf("failed to parse end time: %v", err)
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 
 			for i := range testIterations {
 				val, err := gen.Next(r)
@@ -189,7 +189,7 @@ func TestTimeGenerator_Format(t *testing.T) {
 				t.Fatalf("failed to create generator: %v", err)
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 
 			for i := range testIterations {
 				val, err := gen.Next(r)
@@ -249,7 +249,7 @@ func TestTimeGenerator_Timezone(t *testing.T) {
 				t.Fatalf("failed to load timezone: %v", err)
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 
 			for i := range testIterations {
 				val, err := gen.Next(r)
@@ -349,7 +349,7 @@ func TestTimeGenerator_EdgeCases(t *testing.T) {
 			}
 
 			// Verify it can generate values
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 			_, err = gen.Next(r)
 			if err != nil {
 				t.Fatalf("failed to generate value: %v", err)

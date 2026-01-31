@@ -6,10 +6,18 @@ Items are grouped by spec sections and roadmap phases.
 ## Phase 1 - Core MVP
 
 - [ ] RNG rewrite and execution engine
-  - [ ] Implement SplitMix64 or PCG with per-chunk derivation.
-  - [ ] Implement chunk-based parallelism (default chunk size 50k rows).
+  - [x] Replace RNG with PCG (`rand.NewPCG`) and `Seed`-based construction.
+  - [x] Seed derivation helpers (`Derive`, `DeriveIndex`) for hierarchical determinism.
+  - [x] Per-row RNG instantiation from derived seeds in the executor.
+  - [x] RNG implements `io.Reader` for entropy consumers (e.g., ULID).
+  - [x] Implement chunk-based parallelism (default chunk size 50k rows).
   - [x] Deterministic row generation independent of worker scheduling.
   - [ ] Concurrency stress tests that randomize worker counts/chunk sizes and compare digests.
+  - [ ] Determinism regression suite keyed by (Plan + Seed + Version).
+  - [ ] Cross-version RNG compatibility and migration notes.
+  - [ ] Statistical sanity checks for RNG-dependent generators.
+  - [ ] RNG hot-path benchmarks (seed derivation + instantiation cost).
+  - [ ] Seed serialization/format stability guarantees.
   - [ ] Uniqueness enforcement (bounded retries, entropy estimation, Bloom prechecks).
   - [ ] Relation resolution (M:1 alias sampling, 1:M multinomial, M:N degree + dedupe).
 
@@ -106,4 +114,4 @@ Items are grouped by spec sections and roadmap phases.
 - [ ] Performance and scaling
   - [ ] Buffer reuse in writers.
   - [ ] Preallocation of record maps.
-  - [ ] Benchmarks generating millions of rows per schema.
+  - [x] Benchmarks generating millions of rows per schema.

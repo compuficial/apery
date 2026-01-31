@@ -10,7 +10,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
+	"runtime"
+	"sync"
 
 	"apery/internal/plan"
 	"apery/internal/registry"
@@ -19,14 +20,18 @@ import (
 )
 
 type Executor struct {
-	writer writer.Writer
-	logger Logger
+	writer    writer.Writer
+	logger    Logger
+	chunkSize int64
+	workers   int
 }
 
 type fieldRuntime struct {
-	name string
-	gen  registry.Generator
-	seed int64
+	name    string
+	genName string
+	config  map[string]any
+	factory registry.Factory
+	seed    rng.Seed
 }
 
 type Logger interface {
@@ -35,6 +40,11 @@ type Logger interface {
 
 type Option func(*Executor)
 
+const (
+	defaultChunkSize = int64(50000)
+	maxWorkers       = 64
+)
+
 // WithLogger configures a logger for execution diagnostics.
 func WithLogger(logger Logger) Option {
 	return func(e *Executor) {
@@ -42,9 +52,23 @@ func WithLogger(logger Logger) Option {
 	}
 }
 
+// WithChunkSize configures the row count per chunk.
+func WithChunkSize(size int64) Option {
+	return func(e *Executor) {
+		e.chunkSize = size
+	}
+}
+
+// WithWorkers configures the number of worker goroutines.
+func WithWorkers(workers int) Option {
+	return func(e *Executor) {
+		e.workers = workers
+	}
+}
+
 // New constructs an Executor with the provided writer and options.
 func New(w writer.Writer, opts ...Option) *Executor {
-	executor := &Executor{writer: w}
+	executor := &Executor{writer: w, chunkSize: defaultChunkSize}
 	for _, opt := range opts {
 		opt(executor)
 	}
@@ -78,57 +102,159 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, e
 		return err
 	}
 
-	entitySeed := rng.Derive(seed, fmt.Sprintf("%s[%d]", entity.Name, entityIndex))
+	entitySeed := rng.Derive(rng.SeedFromInt64(seed), fmt.Sprintf("%s[%d]", entity.Name, entityIndex))
 	fields, err := e.initFields(entity, entitySeed)
 	if err != nil {
 		return err
 	}
 
-	for row := int64(0); row < entity.Count; row++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	chunks := makeChunks(entity.Count, e.chunkSize)
+	if len(chunks) == 0 {
+		return nil
+	}
 
-		record := writer.NewOrderedMap()
-		rowLabel := strconv.FormatInt(row, 10)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-		for _, field := range fields {
-			rowSeed := rng.Derive(field.seed, rowLabel)
-			val, err := field.gen.Next(rng.New(rowSeed))
-			if err != nil {
-				return fmt.Errorf("row %d, field '%s': %w", row, field.name, err)
+	chunkCh := make(chan chunk)
+	resultCh := make(chan chunkResult, len(chunks))
+
+	var wg sync.WaitGroup
+	var firstErr error
+	var errOnce sync.Once
+
+	setErr := func(err error) {
+		errOnce.Do(func() {
+			firstErr = err
+			cancel()
+		})
+	}
+
+	workers := e.workerCount()
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ch := range chunkCh {
+				records, err := e.runChunk(ctx, entity, fields, ch)
+				if err != nil {
+					setErr(err)
+					return
+				}
+				resultCh <- chunkResult{index: ch.Index, records: records}
 			}
+		}()
+	}
 
-			record.Set(field.name, val)
-		}
+	for _, ch := range chunks {
+		chunkCh <- ch
+	}
+	close(chunkCh)
 
-		if err := e.writer.WriteRecord(entity.Name, record); err != nil {
-			return err
+	wg.Wait()
+	close(resultCh)
+
+	results := make([][]*writer.OrderedMap, len(chunks))
+	for res := range resultCh {
+		results[res.index] = res.records
+	}
+
+	if firstErr != nil {
+		return firstErr
+	}
+
+	for _, records := range results {
+		for _, record := range records {
+			if err := e.writer.WriteRecord(entity.Name, record); err != nil {
+				return err
+			}
 		}
 	}
+
 	return nil
 }
 
 // initFields initializes generators and seeds for entity fields.
-func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed int64) ([]fieldRuntime, error) {
+func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed rng.Seed) ([]fieldRuntime, error) {
 	fields := make([]fieldRuntime, 0, len(entity.Fields))
 
 	for _, field := range entity.Fields {
-		gen, err := registry.Get(field.Gen, field.Config)
+		factory, err := registry.FactoryFor(field.Gen)
 		if err != nil {
+			return nil, fmt.Errorf("field '%s': %w", field.Name, err)
+		}
+
+		if _, err := factory(field.Config); err != nil {
 			return nil, fmt.Errorf("field '%s': %w", field.Name, err)
 		}
 
 		fieldSeed := rng.Derive(entitySeed, field.Name)
 		fields = append(fields, fieldRuntime{
-			name: field.Name,
-			gen:  gen,
-			seed: fieldSeed,
+			name:    field.Name,
+			genName: field.Gen,
+			config:  field.Config,
+			factory: factory,
+			seed:    fieldSeed,
 		})
 		e.logf("%s -> %s (seed: %d)", field.Name, field.Gen, fieldSeed)
 	}
 
 	return fields, nil
+}
+
+type chunkResult struct {
+	index   int
+	records []*writer.OrderedMap
+}
+
+type seekableGenerator interface {
+	SeekRow(row int64) error
+}
+
+type chunkField struct {
+	name string
+	gen  registry.Generator
+	seed rng.Seed
+}
+
+func (e *Executor) runChunk(ctx context.Context, entity *plan.EntitySpec, fields []fieldRuntime, ch chunk) ([]*writer.OrderedMap, error) {
+	chunkFields := make([]chunkField, 0, len(fields))
+	for _, field := range fields {
+		gen, err := field.factory(field.config)
+		if err != nil {
+			return nil, fmt.Errorf("field '%s': %w", field.name, err)
+		}
+		if seeker, ok := gen.(seekableGenerator); ok {
+			if err := seeker.SeekRow(ch.Start); err != nil {
+				return nil, fmt.Errorf("field '%s': %w", field.name, err)
+			}
+		}
+		chunkFields = append(chunkFields, chunkField{
+			name: field.name,
+			gen:  gen,
+			seed: field.seed,
+		})
+	}
+
+	records := make([]*writer.OrderedMap, 0, int(ch.End-ch.Start))
+	for row := ch.Start; row < ch.End; row++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		record := writer.NewOrderedMap()
+		for _, field := range chunkFields {
+			rowSeed := rng.DeriveIndex(field.seed, row)
+			val, err := field.gen.Next(rng.New(rowSeed))
+			if err != nil {
+				return nil, fmt.Errorf("row %d, field '%s': %w", row, field.name, err)
+			}
+			record.Set(field.name, val)
+		}
+		records = append(records, record)
+	}
+
+	return records, nil
 }
 
 // closeWithError closes the writer and joins errors if needed.
@@ -150,4 +276,18 @@ func (e *Executor) logf(format string, args ...any) {
 		return
 	}
 	e.logger.Printf(format, args...)
+}
+
+func (e *Executor) workerCount() int {
+	if e.workers > 0 {
+		return e.workers
+	}
+	workers := runtime.NumCPU() * 2
+	if workers < 1 {
+		return 1
+	}
+	if workers > maxWorkers {
+		return maxWorkers
+	}
+	return workers
 }

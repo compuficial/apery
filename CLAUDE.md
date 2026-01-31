@@ -32,6 +32,12 @@ go test -v ./...
 go test ./internal/registry
 ```
 
+### Benchmarking
+```bash
+# Run runtime executor benchmarks
+make bench
+```
+
 ## Architecture
 
 ### Core Components
@@ -52,6 +58,7 @@ go test ./internal/registry
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
    - Executes plans by iterating entities and fields
    - Creates per-field RNGs using hierarchical seed derivation
+   - Chunked parallel execution with configurable worker count and chunk size
    - Generates records row-by-row and writes via writer interface
 
 4. **Writer** (`internal/writer`): Output abstraction

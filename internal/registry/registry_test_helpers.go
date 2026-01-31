@@ -58,8 +58,8 @@ func AssertDeterministic(t *testing.T, genName string, config map[string]any) {
 		t.Fatalf("failed to create generator 2: %v", err)
 	}
 
-	r1 := rng.New(testSeed)
-	r2 := rng.New(testSeed)
+	r1 := rng.New(rng.SeedFromInt64(testSeed))
+	r2 := rng.New(rng.SeedFromInt64(testSeed))
 
 	for i := range testIterations {
 		val1, err := gen1.Next(r1)

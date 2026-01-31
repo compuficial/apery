@@ -27,7 +27,7 @@ func TestULIDGenerator_Format(t *testing.T) {
 		t.Fatalf("failed to create ulid generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 
 	for i := range testIterations {
 		val, err := gen.Next(r)
@@ -62,7 +62,7 @@ func TestULIDGenerator_Uniqueness(t *testing.T) {
 		t.Fatalf("failed to create ulid generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 	seen := make(map[string]bool)
 
 	for i := range testIterations {

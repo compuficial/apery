@@ -122,7 +122,7 @@ func handleQuantifier(re *syntax.Regexp, r *rng.Rng, maxRepeat int) (string, err
 	}
 
 	var buf strings.Builder
-	for i := 0; i < count; i++ {
+	for range count {
 		s, err := generate(re.Sub[0], r, maxRepeat)
 		if err != nil {
 			return "", err

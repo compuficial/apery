@@ -64,7 +64,7 @@ func TestPickGenerator_FileLoading(t *testing.T) {
 		}
 
 		validSet := map[any]bool{"red": true, "green": true, "blue": true}
-		r := rng.New(testSeed)
+		r := rng.New(rng.SeedFromInt64(testSeed))
 
 		for i := range testIterations {
 			val, err := gen.Next(r)
@@ -85,7 +85,7 @@ func TestPickGenerator_FileLoading(t *testing.T) {
 
 		// Expected values after trimming whitespace and skipping empty lines
 		validSet := map[any]bool{"apple": true, "banana": true, "cherry": true}
-		r := rng.New(testSeed)
+		r := rng.New(rng.SeedFromInt64(testSeed))
 
 		for i := range testIterations {
 			val, err := gen.Next(r)
@@ -122,7 +122,7 @@ func TestPickGenerator_ValuesOnly(t *testing.T) {
 				validSet[v] = true
 			}
 
-			r := rng.New(testSeed)
+			r := rng.New(rng.SeedFromInt64(testSeed))
 
 			for i := range testIterations {
 				val, err := gen.Next(r)
@@ -158,7 +158,7 @@ func TestPickGenerator_URLLoading(t *testing.T) {
 	}
 
 	validSet := map[any]bool{"alpha": true, "beta": true, "gamma": true}
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 
 	for i := range testIterations {
 		val, err := gen.Next(r)

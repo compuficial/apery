@@ -27,7 +27,7 @@ func TestUUIDGenerator_Format(t *testing.T) {
 		t.Fatalf("failed to create uuid generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 
 	for i := range testIterations {
 		val, err := gen.Next(r)

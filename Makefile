@@ -1,4 +1,4 @@
-.PHONY: build run clean fmt vet test
+.PHONY: build run clean fmt vet test bench
 
 # Build the binary
 build:
@@ -24,6 +24,10 @@ vet:
 # Run tests
 test:
 	go test ./...
+
+# Run benchmarks
+bench:
+	go test -run '^$$' -bench BenchmarkExecutor -benchmem ./internal/runtime
 
 # Build and run
 all: build

@@ -82,8 +82,8 @@ func TestRegexGenerator_OutputMatchesPattern(t *testing.T) {
 			// Compile pattern for validation (anchored)
 			compiled := regexp.MustCompile("^(?:" + tt.Pattern + ")$")
 
-			r := rng.New(testSeed)
-			for i := 0; i < testIterations; i++ {
+			r := rng.New(rng.SeedFromInt64(testSeed))
+			for i := range testIterations {
 				val, err := gen.Next(r)
 				if err != nil {
 					t.Fatalf("generation error at %d: %v", i, err)
@@ -121,8 +121,8 @@ func TestRegexGenerator_QuantifierBounds(t *testing.T) {
 				t.Fatalf("failed to create generator: %v", err)
 			}
 
-			r := rng.New(testSeed)
-			for i := 0; i < testIterations; i++ {
+			r := rng.New(rng.SeedFromInt64(testSeed))
+			for i := range testIterations {
 				val, err := gen.Next(r)
 				if err != nil {
 					t.Fatalf("generation error at %d: %v", i, err)
@@ -142,7 +142,7 @@ func TestRegexGenerator_MaxRepeatMinError(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 	if _, err := gen.Next(r); err == nil {
 		t.Fatalf("expected error when min exceeds max_repeat")
 	}
@@ -155,8 +155,8 @@ func TestRegexGenerator_Literal(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
-	for i := 0; i < testIterations; i++ {
+	r := rng.New(rng.SeedFromInt64(testSeed))
+	for i := range testIterations {
 		val, err := gen.Next(r)
 		if err != nil {
 			t.Fatalf("generation error at %d: %v", i, err)
@@ -174,7 +174,7 @@ func TestRegexGenerator_CharClass(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 	val, err := gen.Next(r)
 	if err != nil {
 		t.Fatalf("generation error: %v", err)
@@ -196,9 +196,9 @@ func TestRegexGenerator_Alternation(t *testing.T) {
 	}
 
 	valid := map[string]bool{"apple": true, "banana": true, "cherry": true}
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 
-	for i := 0; i < testIterations; i++ {
+	for i := range testIterations {
 		val, err := gen.Next(r)
 		if err != nil {
 			t.Fatalf("generation error at %d: %v", i, err)
@@ -216,11 +216,11 @@ func TestRegexGenerator_EmptyMatch(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 	foundEmpty := false
 	foundA := false
 
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		val, _ := gen.Next(r)
 		s := val.(string)
 		if s == "" {
@@ -248,7 +248,7 @@ func TestRegexGenerator_OutputType(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 	val, err := gen.Next(r)
 	if err != nil {
 		t.Fatalf("generation error: %v", err)
@@ -266,7 +266,7 @@ func TestRegexGenerator_Unicode(t *testing.T) {
 		t.Fatalf("failed to create generator: %v", err)
 	}
 
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 	val, err := gen.Next(r)
 	if err != nil {
 		t.Fatalf("generation error: %v", err)
@@ -292,9 +292,9 @@ func TestRegexGenerator_NestedGroups(t *testing.T) {
 	}
 
 	compiled := regexp.MustCompile(`^((a|b)(c|d))+$`)
-	r := rng.New(testSeed)
+	r := rng.New(rng.SeedFromInt64(testSeed))
 
-	for i := 0; i < testIterations; i++ {
+	for i := range testIterations {
 		val, err := gen.Next(r)
 		if err != nil {
 			t.Fatalf("generation error at %d: %v", i, err)

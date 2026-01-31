@@ -7,7 +7,6 @@
 package rng
 
 import (
-	"encoding/binary"
 	"hash/fnv"
 	"math"
 	"math/rand/v2"
@@ -18,8 +17,16 @@ type Rng struct {
 	r *rand.Rand
 }
 
-// New creates a new RNG with a seed
-func New(seed int64) *Rng {
+// Seed represents a deterministic RNG seed.
+type Seed uint64
+
+// SeedFromInt64 converts an int64 seed into a Seed.
+func SeedFromInt64(value int64) Seed {
+	return Seed(uint64(value))
+}
+
+// New creates a new RNG with a seed.
+func New(seed Seed) *Rng {
 	return &Rng{r: rand.New(rand.NewPCG(uint64(seed), 0))}
 }
 
@@ -43,18 +50,23 @@ func (r *Rng) FloatRange(min float64, max float64) float64 {
 	return min + r.r.Float64()*(math.Nextafter(max, math.Inf(1))-min)
 }
 
-// Derive creates a child seed from parent + label
-func Derive(parent int64, label string) int64 {
-	// Fast hash function
+// Derive creates a child seed from parent + label.
+func Derive(parent Seed, label string) Seed {
 	hf := fnv.New64a()
-
-	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], uint64(parent))
-	hf.Write(buf[:])
-
 	hf.Write([]byte(label))
+	return Seed(mix64(uint64(parent) ^ hf.Sum64()))
+}
 
-	return int64(hf.Sum64())
+// DeriveIndex creates a child seed from parent + index.
+func DeriveIndex(parent Seed, index int64) Seed {
+	return Seed(mix64(uint64(parent) ^ uint64(index)))
+}
+
+func mix64(value uint64) uint64 {
+	value += 0x9e3779b97f4a7c15
+	value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9
+	value = (value ^ (value >> 27)) * 0x94d049bb133111eb
+	return value ^ (value >> 31)
 }
 
 // NormFloat64 returns a normally distributed float64 with mean 0 and stddev 1

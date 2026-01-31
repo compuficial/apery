@@ -10,10 +10,11 @@ Apery generates synthetic data from declarative plans with guaranteed reproducib
 - Deterministic generation (Plan + Seed + Version = Identical Output)
 - Platform-independent output (explicit `int64`/`float64` types)
 - Hierarchical RNG seeding for parallel execution
+- Chunked parallel execution with configurable worker count and chunk size
 - Extensible generator registry
 - Multiple output formats (JSONL, CSV, Parquet, SQL, etc.)
 
-See [sdg.md](sdg.md) for full design specification.
+See [sdg.md](docs/sdg.md) for full design specification.
 
 ## Quick Start
 
@@ -26,6 +27,9 @@ make run
 
 # Format code
 make fmt
+
+# Run benchmarks
+make bench
 ```
 
 ## Architecture
@@ -47,6 +51,7 @@ Currently implemented:
 - `bool` - Boolean with configurable probability
 - `int` - Random integers within a range
 - `float` - Random floats within a range
+- `regex` - Strings matching a limited regex subset
 - `uuid` - UUID v4 strings
 - `ulid` - ULID strings (sortable unique identifiers)
 - `time` - Timestamps within a configurable range
@@ -86,4 +91,10 @@ if err != nil {
 if err := apery.Run(context.Background(), plan, w); err != nil {
     return err
 }
+```
+
+## Benchmarking
+
+```bash
+make bench
 ```
