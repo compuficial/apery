@@ -14,7 +14,8 @@ import (
 
 // Rng is a seeded random number generator
 type Rng struct {
-	r *rand.Rand
+	r    *rand.Rand
+	seed Seed
 }
 
 // Seed represents a deterministic RNG seed.
@@ -27,7 +28,12 @@ func SeedFromInt64(value int64) Seed {
 
 // New creates a new RNG with a seed.
 func New(seed Seed) *Rng {
-	return &Rng{r: rand.New(rand.NewPCG(uint64(seed), 0))}
+	return &Rng{r: rand.New(rand.NewPCG(uint64(seed), 0)), seed: seed}
+}
+
+// GetSeed returns rng seed
+func (r *Rng) GetSeed() Seed {
+	return r.seed
 }
 
 // Intn returns a random int in [0,n)

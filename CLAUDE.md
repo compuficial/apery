@@ -53,7 +53,7 @@ make bench
    - Global registry pattern with `Register()` (returns error), `MustRegister()` (panic on error), and `Get()`
    - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
-   - Built-in generators: `seq`, `pick` (values|file|url with allowlist), `bool`, `int`, `float`, `uuid`, `ulid`, `time`
+   - Built-in generators: `seq`, `pick` (values|file|url with allowlist), `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `zipf`, `object`
 
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
    - Executes plans by iterating entities and fields
@@ -69,8 +69,9 @@ make bench
 
 5. **RNG** (`internal/rng`): Deterministic random number generation
    - `Derive(parent, label)`: Creates child seeds using FNV-1a hash
+   - `GetSeed()`: Returns the construction seed, used by composite generators for child seed derivation
    - Ensures reproducibility: same seed + plan = identical output
-   - Hierarchical: root → entity → field → row derivation
+   - Hierarchical: root → entity → field → row → sub-field derivation
    - Implements `io.Reader` for compatibility with libraries requiring entropy sources (e.g., ULID)
 
 ### Determinism Model
@@ -83,7 +84,10 @@ Root Seed (from Plan)
   └─> Entity Seed (derived from root + entity name/index)
       └─> Field Seed (derived from entity seed + field name)
           └─> Row Seed (derived from field seed + row index)
+              └─> Sub-Field Seed (derived from row seed + sub-field name, for composite generators)
 ```
+
+Composite generators (e.g., `object`) use `rng.Derive(r.GetSeed(), subFieldName)` to derive child seeds from the parent row seed, keeping the hierarchy clean and order-independent.
 
 See `internal/runtime/executor.go:44` for seed derivation and `internal/rng/rng.go:25` for the `Derive()` function.
 
@@ -104,6 +108,10 @@ func init() {
     })
 }
 ```
+
+### Composite Generators
+
+Composite generators (e.g., `object`) instantiate sub-generators at factory time and store them in the struct. During `Next()`, they derive child seeds using `rng.Derive(r.GetSeed(), fieldName)` for each sub-field, ensuring deterministic output independent of field ordering.
 
 ### Adding New Generators
 
@@ -126,7 +134,7 @@ The registry is global and thread-safe via init-time registration.
 
 ## Design Document
 
-The `sdg.md` file contains the full specification and design philosophy. Key sections:
+The `sdg-spec.md` file contains the full specification and design philosophy. Key sections:
 - Determinism guarantees (Plan + Seed + Version = Identical Output)
 - Composition over code philosophy (minimal primitives + combinators)
 - AI-first design with MCP integration plans

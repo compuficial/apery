@@ -1,6 +1,6 @@
 # Spec Completion Checklist
 
-This checklist captures all work needed to fully implement the `sdg.md` spec.
+This checklist captures all work needed to fully implement the `sdg-spec.md` spec.
 Items are grouped by spec sections and roadmap phases.
 
 ## Phase 1 - Core MVP
@@ -37,7 +37,7 @@ Items are grouped by spec sections and roadmap phases.
     - [x] seq(start,step)
     - [x] pick(values|file|url)
   - [ ] Composite generators
-    - [ ] object(fields)
+    - [x] object(fields)
     - [ ] list(len,item)
     - [ ] pipe(g1,g2)
     - [ ] one_of(gens,weights)

@@ -25,6 +25,13 @@ func main() {
 					{Name: "phone", Gen: "regex", Config: map[string]any{"pattern": `\(\d{3}\) \d{3}-\d{4}`}},
 					{Name: "sku", Gen: "regex", Config: map[string]any{"pattern": `[A-Z]{2}-\d{6}`}},
 					{Name: "license_plate", Gen: "regex", Config: map[string]any{"pattern": `[A-Z]{3}-\d{4}`}},
+				{Name: "address", Gen: "object", Config: map[string]any{
+					"fields": map[string]any{
+						"city":  map[string]any{"gen": "pick", "config": map[string]any{"values": []any{"New York", "Los Angeles", "Chicago", "Houston", "Phoenix"}}},
+						"zip":   map[string]any{"gen": "int", "config": map[string]any{"min": 10000, "max": 99999}},
+						"suite": map[string]any{"gen": "regex", "config": map[string]any{"pattern": `[A-Z]\d{3}`}},
+					},
+				}},
 				},
 			},
 		},

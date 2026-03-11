@@ -7,6 +7,7 @@ A deterministic synthetic data generator built in Go.
 Apery generates synthetic data from declarative plans with guaranteed reproducibility. Given the same plan and seed, it produces identical output every time.
 
 **Key Features:**
+
 - Deterministic generation (Plan + Seed + Version = Identical Output)
 - Platform-independent output (explicit `int64`/`float64` types)
 - Hierarchical RNG seeding for parallel execution
@@ -14,7 +15,7 @@ Apery generates synthetic data from declarative plans with guaranteed reproducib
 - Extensible generator registry
 - Multiple output formats (JSONL, CSV, Parquet, SQL, etc.)
 
-See [sdg.md](docs/sdg.md) for full design specification.
+See [sdg-spec.md](docs/sdg-spec.md) for full design specification.
 
 ## Quick Start
 
@@ -45,16 +46,24 @@ internal/
 
 ## Generators
 
-Currently implemented:
+### Scalar Generators
+
 - `seq` - Sequential integers with configurable start/step
-- `pick` - Random selection from a list
+- `pick` - Random selection from a list (inline, file, or URL)
 - `bool` - Boolean with configurable probability
 - `int` - Random integers within a range
 - `float` - Random floats within a range
+- `normal_int` - Normally distributed integers with optional clamping
+- `normal_float` - Normally distributed floats
+- `zipf` - Zipf-distributed integers
 - `regex` - Strings matching a limited regex subset
 - `uuid` - UUID v4 strings
 - `ulid` - ULID strings (sortable unique identifiers)
 - `time` - Timestamps within a configurable range
+
+### Composite Generators
+
+- `object` - Nested objects with named sub-fields, each with its own generator
 
 ## Example
 
@@ -71,6 +80,12 @@ plan := &plan.Plan{
                 {Name: "score", Gen: "float", Config: map[string]any{"min": 0.0, "max": 100.0}},
                 {Name: "active", Gen: "bool", Config: map[string]any{"probability": 0.8}},
                 {Name: "role", Gen: "pick", Config: map[string]any{"values": []any{"admin", "user", "guest"}}},
+                {Name: "address", Gen: "object", Config: map[string]any{
+                    "fields": map[string]any{
+                        "city": map[string]any{"gen": "pick", "config": map[string]any{"values": []any{"NYC", "LA", "Chicago"}}},
+                        "zip":  map[string]any{"gen": "int", "config": map[string]any{"min": 10000, "max": 99999}},
+                    },
+                }},
                 {Name: "created_at", Gen: "time", Config: map[string]any{
                     "start": "2024-01-01T00:00:00Z",
                     "end":   "2024-12-31T23:59:59Z",
