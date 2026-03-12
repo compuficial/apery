@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"apery/internal/plan"
@@ -11,6 +12,38 @@ import (
 	"apery/internal/rng"
 	"apery/internal/writer"
 )
+
+// stubRowAwareGen is a test-only generator that implements RowAwareGenerator and DependencyDeclarer.
+type stubRowAwareGen struct {
+	deps []string
+}
+
+func (s *stubRowAwareGen) Next(_ *rng.Rng) (any, error) {
+	return nil, fmt.Errorf("stubRowAwareGen: requires row context")
+}
+
+func (s *stubRowAwareGen) NextWithRow(_ *rng.Rng, row registry.RowContext) (any, error) {
+	v, ok := row.Get(s.deps[0])
+	if !ok {
+		return nil, fmt.Errorf("missing dep %s", s.deps[0])
+	}
+	return fmt.Sprintf("got:%v", v), nil
+}
+
+func (s *stubRowAwareGen) Dependencies() []string {
+	return s.deps
+}
+
+func init() {
+	registry.MustRegister("__test_row_aware", func(config map[string]any) (registry.Generator, error) {
+		deps, _ := config["deps"].([]any)
+		strs := make([]string, len(deps))
+		for i, d := range deps {
+			strs[i] = d.(string)
+		}
+		return &stubRowAwareGen{deps: strs}, nil
+	})
+}
 
 type valueWriter struct {
 	values []int64
@@ -265,6 +298,174 @@ func TestExecutorChunkDeterminism(t *testing.T) {
 		expected := int64(i + 1)
 		if idA[i] != expected {
 			t.Fatalf("seq order mismatch at %d: expected %d, got %d", i, expected, idA[i])
+		}
+	}
+}
+
+func TestExecutorDependencyValidation(t *testing.T) {
+	t.Run("valid ordering", func(t *testing.T) {
+		p := &plan.Plan{
+			Seed: 1,
+			Entities: []plan.EntitySpec{
+				{
+					Name:  "Test",
+					Count: 1,
+					Fields: []plan.FieldSpec{
+						{Name: "status", Gen: "bool"},
+						{Name: "label", Gen: "__test_row_aware", Config: map[string]any{"deps": []any{"status"}}},
+					},
+				},
+			},
+		}
+		e := New(&stubWriter{})
+		err := e.Run(context.Background(), p)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("invalid ordering", func(t *testing.T) {
+		p := &plan.Plan{
+			Seed: 1,
+			Entities: []plan.EntitySpec{
+				{
+					Name:  "Test",
+					Count: 1,
+					Fields: []plan.FieldSpec{
+						{Name: "label", Gen: "__test_row_aware", Config: map[string]any{"deps": []any{"status"}}},
+						{Name: "status", Gen: "bool"},
+					},
+				},
+			},
+		}
+		e := New(&stubWriter{})
+		err := e.Run(context.Background(), p)
+		if err == nil {
+			t.Fatal("expected error for invalid field ordering")
+		}
+		if !strings.Contains(err.Error(), "must be declared before") {
+			t.Fatalf("expected ordering error, got: %v", err)
+		}
+	})
+
+	t.Run("dependency on nonexistent field", func(t *testing.T) {
+		p := &plan.Plan{
+			Seed: 1,
+			Entities: []plan.EntitySpec{
+				{
+					Name:  "Test",
+					Count: 1,
+					Fields: []plan.FieldSpec{
+						{Name: "label", Gen: "__test_row_aware", Config: map[string]any{"deps": []any{"nonexistent"}}},
+					},
+				},
+			},
+		}
+		e := New(&stubWriter{})
+		err := e.Run(context.Background(), p)
+		if err == nil {
+			t.Fatal("expected error for nonexistent dependency")
+		}
+	})
+}
+
+type recordWriter struct {
+	records []*writer.OrderedMap
+}
+
+func (w *recordWriter) WriteRecord(entity string, record *writer.OrderedMap) error {
+	w.records = append(w.records, record)
+	return nil
+}
+
+func (w *recordWriter) Close() error {
+	return nil
+}
+
+func TestExecutorRowAwareDispatch(t *testing.T) {
+	p := &plan.Plan{
+		Seed: 99,
+		Entities: []plan.EntitySpec{
+			{
+				Name:  "Test",
+				Count: 5,
+				Fields: []plan.FieldSpec{
+					{Name: "status", Gen: "bool"},
+					{Name: "label", Gen: "__test_row_aware", Config: map[string]any{"deps": []any{"status"}}},
+				},
+			},
+		},
+	}
+
+	w := &recordWriter{}
+	e := New(w)
+	if err := e.Run(context.Background(), p); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(w.records) != 5 {
+		t.Fatalf("expected 5 records, got %d", len(w.records))
+	}
+
+	for i, rec := range w.records {
+		label, ok := rec.Get("label")
+		if !ok {
+			t.Fatalf("row %d: missing label", i)
+		}
+		s, ok := label.(string)
+		if !ok {
+			t.Fatalf("row %d: label is %T, want string", i, label)
+		}
+		if !strings.HasPrefix(s, "got:") {
+			t.Fatalf("row %d: label = %q, want prefix 'got:'", i, s)
+		}
+	}
+}
+
+func TestExecutorRowAwareDeterminism(t *testing.T) {
+	p := plan.Plan{
+		Seed: 77,
+		Entities: []plan.EntitySpec{
+			{
+				Name:  "Test",
+				Count: 20,
+				Fields: []plan.FieldSpec{
+					{Name: "status", Gen: "bool"},
+					{Name: "label", Gen: "__test_row_aware", Config: map[string]any{"deps": []any{"status"}}},
+				},
+			},
+		},
+	}
+
+	run := func(workers int, chunkSize int64) ([]string, error) {
+		w := &recordWriter{}
+		e := New(w, WithWorkers(workers), WithChunkSize(chunkSize))
+		if err := e.Run(context.Background(), &p); err != nil {
+			return nil, err
+		}
+		labels := make([]string, len(w.records))
+		for i, rec := range w.records {
+			v, _ := rec.Get("label")
+			labels[i] = fmt.Sprintf("%v", v)
+		}
+		return labels, nil
+	}
+
+	a, err := run(1, 5)
+	if err != nil {
+		t.Fatalf("run A: %v", err)
+	}
+	b, err := run(4, 3)
+	if err != nil {
+		t.Fatalf("run B: %v", err)
+	}
+
+	if len(a) != len(b) {
+		t.Fatalf("length mismatch: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("row %d: %q != %q", i, a[i], b[i])
 		}
 	}
 }

@@ -177,6 +177,7 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, e
 // initFields initializes generators and seeds for entity fields.
 func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed rng.Seed) ([]fieldRuntime, error) {
 	fields := make([]fieldRuntime, 0, len(entity.Fields))
+	knownFields := make(map[string]bool)
 
 	for _, field := range entity.Fields {
 		factory, err := registry.FactoryFor(field.Gen)
@@ -184,11 +185,22 @@ func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed rng.Seed) ([]f
 			return nil, fmt.Errorf("field '%s': %w", field.Name, err)
 		}
 
-		if _, err := factory(field.Config); err != nil {
+		gen, err := factory(field.Config)
+		if err != nil {
 			return nil, fmt.Errorf("field '%s': %w", field.Name, err)
 		}
 
+		// Validate dependency ordering for row-aware generators
+		if dd, ok := gen.(registry.DependencyDeclarer); ok {
+			for _, dep := range dd.Dependencies() {
+				if !knownFields[dep] {
+					return nil, fmt.Errorf("field '%s' references '%s', which must be declared before it", field.Name, dep)
+				}
+			}
+		}
+
 		fieldSeed := rng.Derive(entitySeed, field.Name)
+		knownFields[field.Name] = true
 		fields = append(fields, fieldRuntime{
 			name:    field.Name,
 			genName: field.Gen,
@@ -245,7 +257,15 @@ func (e *Executor) runChunk(ctx context.Context, entity *plan.EntitySpec, fields
 		record := writer.NewOrderedMap()
 		for _, field := range chunkFields {
 			rowSeed := rng.DeriveIndex(field.seed, row)
-			val, err := field.gen.Next(rng.New(rowSeed))
+			r := rng.New(rowSeed)
+
+			var val any
+			var err error
+			if ra, ok := field.gen.(registry.RowAwareGenerator); ok {
+				val, err = ra.NextWithRow(r, record)
+			} else {
+				val, err = field.gen.Next(r)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("row %d, field '%s': %w", row, field.name, err)
 			}

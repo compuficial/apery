@@ -53,7 +53,7 @@ make bench
    - Global registry pattern with `Register()` (returns error), `MustRegister()` (panic on error), and `Get()`
    - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
-   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `zipf`, `object`, `list`
+   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`
 
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
    - Executes plans by iterating entities and fields

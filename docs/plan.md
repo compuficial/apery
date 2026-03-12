@@ -42,12 +42,12 @@ Items are grouped by spec sections and roadmap phases.
     - [x] object(fields)
     - [x] list(len,item)
     - [x] list variable-length mode (min_len/max_len)
-    - [ ] sample(values, n) — pick N unique items without replacement
+    - [x] sample(values, n) — pick N unique items without replacement
     - [ ] pipe(g1,g2)
-    - [ ] one_of(gens,weights)
-    - [ ] switch(key,cases)
+    - [x] one_of(gens,weights)
+    - [x] switch(key,cases)
     - [ ] when(cond,cases)
-    - [ ] template(tpl) — string interpolation with row field references
+    - [x] template(tpl) — string interpolation with row field references
     - [ ] map(items,fn)
     - [ ] expr(code)
   - [ ] Relational generators

@@ -63,3 +63,22 @@ func FactoryFor(name string) (Factory, error) {
 	}
 	return factory, nil
 }
+
+// RowContext provides read access to already-generated field values in the current row.
+type RowContext interface {
+	Get(fieldName string) (any, bool)
+}
+
+// RowAwareGenerator is a generator that needs access to other fields in the current row.
+// The executor calls NextWithRow instead of Next when this interface is satisfied.
+// Next() should return an error as a safety net for incorrect usage (e.g., nesting inside object/list).
+type RowAwareGenerator interface {
+	Generator
+	NextWithRow(r *rng.Rng, row RowContext) (any, error)
+}
+
+// DependencyDeclarer is implemented by generators that reference other fields in the row.
+// The executor validates that all declared dependencies appear earlier in the field list.
+type DependencyDeclarer interface {
+	Dependencies() []string
+}

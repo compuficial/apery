@@ -47,6 +47,31 @@ func main() {
 					"max_len": 4,
 					"item": map[string]any{"gen": "pick", "config": map[string]any{"values": []any{"admin", "beta", "premium", "internal", "vip"}}},
 				}},
+				{Name: "skills", Gen: "sample", Config: map[string]any{
+					"values": []any{"Go", "Python", "Rust", "TypeScript", "Java", "C++", "Ruby", "Kotlin"},
+					"min_n":  2,
+					"max_n":  5,
+				}},
+				{Name: "contact_method", Gen: "one_of", Config: map[string]any{
+					"generators": []any{
+						map[string]any{"gen": "regex", "config": map[string]any{"pattern": `[a-z]{5,10}@(gmail|yahoo|outlook)\.com`}},
+						map[string]any{"gen": "regex", "config": map[string]any{"pattern": `\+1-\d{3}-\d{3}-\d{4}`}},
+					},
+					"weights": []any{7.0, 3.0},
+				}},
+				{Name: "greeting", Gen: "template", Config: map[string]any{
+					"tpl": "Welcome, employee #{id} from {department}!",
+				}},
+				{Name: "access_level", Gen: "switch", Config: map[string]any{
+					"key": "department",
+					"cases": map[string]any{
+						"engineering": map[string]any{"gen": "const", "config": map[string]any{"value": "full"}},
+						"sales":       map[string]any{"gen": "const", "config": map[string]any{"value": "read-only"}},
+						"marketing":   map[string]any{"gen": "const", "config": map[string]any{"value": "read-only"}},
+						"support":     map[string]any{"gen": "const", "config": map[string]any{"value": "limited"}},
+					},
+					"default": map[string]any{"gen": "const", "config": map[string]any{"value": "standard"}},
+				}},
 				},
 			},
 		},

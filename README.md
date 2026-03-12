@@ -66,6 +66,10 @@ internal/
 
 - `object` - Nested objects with named sub-fields, each with its own generator
 - `list` - Arrays of items from a single generator (fixed `len` or variable `min_len`/`max_len`)
+- `sample` - Select N unique items without replacement (fixed `n` or variable `min_n`/`max_n`)
+- `one_of` - Randomly dispatch to one of several generators, with optional weights
+- `template` - String interpolation with `{field_name}` placeholders from the current row
+- `switch` - Dispatch to sub-generator based on another field's value, with optional default
 
 ## Example
 
