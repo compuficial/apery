@@ -49,7 +49,8 @@ internal/
 ### Scalar Generators
 
 - `seq` - Sequential integers with configurable start/step
-- `pick` - Random selection from a list (inline, file, or URL)
+- `pick` - Random selection from a list (inline, file, or URL), with optional weights
+- `const` - Fixed constant value (string, int, float, bool, or null)
 - `bool` - Boolean with configurable probability
 - `int` - Random integers within a range
 - `float` - Random floats within a range
@@ -64,6 +65,7 @@ internal/
 ### Composite Generators
 
 - `object` - Nested objects with named sub-fields, each with its own generator
+- `list` - Arrays of items from a single generator (fixed `len` or variable `min_len`/`max_len`)
 
 ## Example
 

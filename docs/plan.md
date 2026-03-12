@@ -36,12 +36,12 @@ Items are grouped by spec sections and roadmap phases.
     - [x] ulid()
     - [x] seq(start,step)
     - [x] pick(values|file|url)
-    - [ ] pick weighted mode (weights array for non-uniform selection)
-    - [ ] const(value)
+    - [x] pick weighted mode (weights array for non-uniform selection)
+    - [x] const(value)
   - [ ] Composite generators
     - [x] object(fields)
     - [x] list(len,item)
-    - [ ] list variable-length mode (min_len/max_len)
+    - [x] list variable-length mode (min_len/max_len)
     - [ ] sample(values, n) — pick N unique items without replacement
     - [ ] pipe(g1,g2)
     - [ ] one_of(gens,weights)

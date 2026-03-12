@@ -41,6 +41,15 @@ func TestPickGenerator_Config(t *testing.T) {
 		// invalid configs - both specified
 		{Name: "both values and file", Config: map[string]any{"values": []any{"a"}, "file": "path.txt"}, ExpectError: true},
 		{Name: "url without allowlist", Config: map[string]any{"url": "https://example.com/values.txt"}, ExpectError: true},
+
+		// weighted configs
+		{Name: "valid weights", Config: map[string]any{"values": []any{"a", "b", "c"}, "weights": []any{70, 25, 5}}, ExpectError: false},
+		{Name: "weights with floats", Config: map[string]any{"values": []any{"a", "b"}, "weights": []any{0.3, 0.7}}, ExpectError: false},
+		{Name: "weights length mismatch", Config: map[string]any{"values": []any{"a", "b"}, "weights": []any{1, 2, 3}}, ExpectError: true},
+		{Name: "weights with zero", Config: map[string]any{"values": []any{"a", "b"}, "weights": []any{0, 1}}, ExpectError: true},
+		{Name: "weights with negative", Config: map[string]any{"values": []any{"a"}, "weights": []any{-1}}, ExpectError: true},
+		{Name: "weights not array", Config: map[string]any{"values": []any{"a"}, "weights": "bad"}, ExpectError: true},
+		{Name: "weights with file source", Config: map[string]any{"file": filepath.Join(testdataDir, "pick_values.txt"), "weights": []any{1, 2, 3}}, ExpectError: true},
 	})
 }
 
@@ -51,6 +60,7 @@ func TestPickGenerator_Determinism(t *testing.T) {
 		{Name: "two values", Config: map[string]any{"values": []any{"a", "b"}}},
 		{Name: "five values", Config: map[string]any{"values": []any{1, 2, 3, 4, 5}}},
 		{Name: "file source", Config: map[string]any{"file": filepath.Join(testdataDir, "pick_values.txt")}},
+		{Name: "weighted values", Config: map[string]any{"values": []any{"a", "b", "c"}, "weights": []any{70, 25, 5}}},
 	})
 }
 
@@ -188,5 +198,42 @@ func TestPickGenerator_URLScheme(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid url scheme")
+	}
+}
+
+func TestPickGenerator_WeightedDistribution(t *testing.T) {
+	gen, err := Get(pickGen, map[string]any{
+		"values":  []any{"common", "rare", "epic"},
+		"weights": []any{70, 25, 5},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	counts := map[any]int{}
+	r := rng.New(rng.SeedFromInt64(testSeed))
+	for range distributionSamples {
+		val, err := gen.Next(r)
+		if err != nil {
+			t.Fatalf("generation error: %v", err)
+		}
+		counts[val]++
+	}
+
+	total := float64(distributionSamples)
+	tests := []struct {
+		value    string
+		expected float64
+	}{
+		{"common", 0.70},
+		{"rare", 0.25},
+		{"epic", 0.05},
+	}
+
+	for _, tt := range tests {
+		actual := float64(counts[tt.value]) / total
+		if actual < tt.expected-distributionTolerance || actual > tt.expected+distributionTolerance {
+			t.Errorf("%s: expected ~%.2f, got %.4f", tt.value, tt.expected, actual)
+		}
 	}
 }

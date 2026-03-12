@@ -14,7 +14,8 @@ import (
 
 // PickGenerator randomly selects values from a configured list
 type PickGenerator struct {
-	values []any
+	values  []any
+	weights []float64 // nil = uniform; non-nil = precomputed CDF
 }
 
 const (
@@ -22,14 +23,22 @@ const (
 	pickURLTimeout  = 5 * time.Second
 )
 
-// Next returns a random value from the list
+// Next returns a random value from the list, using weighted selection if configured
 func (p *PickGenerator) Next(r *rng.Rng) (any, error) {
-	ran := r.Intn(len(p.values))
-	return p.values[ran], nil
+	if p.weights == nil {
+		return p.values[r.Intn(len(p.values))], nil
+	}
+	f := r.Float64()
+	for i, threshold := range p.weights {
+		if f < threshold {
+			return p.values[i], nil
+		}
+	}
+	return p.values[len(p.values)-1], nil
 }
 
 // validatePickConfig validates and parses config for pick generator
-func validatePickConfig(config map[string]any) ([]any, error) {
+func validatePickConfig(config map[string]any) ([]any, []float64, error) {
 	hasValues := config["values"] != nil
 	hasFile := config["file"] != nil
 	hasURL := config["url"] != nil
@@ -46,20 +55,76 @@ func validatePickConfig(config map[string]any) ([]any, error) {
 	}
 
 	if sourceCount == 0 {
-		return nil, fmt.Errorf("pick: must specify 'values', 'file', or 'url'")
+		return nil, nil, fmt.Errorf("pick: must specify 'values', 'file', or 'url'")
 	}
 	if sourceCount > 1 {
-		return nil, fmt.Errorf("pick: specify only one of 'values', 'file', or 'url'")
+		return nil, nil, fmt.Errorf("pick: specify only one of 'values', 'file', or 'url'")
 	}
 
+	var values []any
+	var err error
 	switch {
 	case hasValues:
-		return validatePickValues(config["values"])
+		values, err = validatePickValues(config["values"])
 	case hasFile:
-		return loadPickFile(config["file"])
+		values, err = loadPickFile(config["file"])
 	default:
-		return loadPickURL(config["url"], config["allowlist"])
+		values, err = loadPickURL(config["url"], config["allowlist"])
 	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Handle optional weights (inline values only)
+	weightsVal, hasWeights := config["weights"]
+	if hasWeights {
+		if !hasValues {
+			return nil, nil, fmt.Errorf("pick: 'weights' can only be used with inline 'values'")
+		}
+		cdf, err := validatePickWeights(weightsVal, len(values))
+		if err != nil {
+			return nil, nil, err
+		}
+		return values, cdf, nil
+	}
+
+	return values, nil, nil
+}
+
+// validatePickWeights validates weights and builds a cumulative distribution (CDF)
+func validatePickWeights(weightsVal any, numValues int) ([]float64, error) {
+	raw, ok := weightsVal.([]any)
+	if !ok {
+		return nil, fmt.Errorf("pick: 'weights' must be an array, got %T", weightsVal)
+	}
+	if len(raw) != numValues {
+		return nil, fmt.Errorf("pick: 'weights' length (%d) must match 'values' length (%d)", len(raw), numValues)
+	}
+
+	weights := make([]float64, len(raw))
+	var total float64
+	for i, w := range raw {
+		v, err := extractFloat(w, "weights", "pick")
+		if err != nil {
+			return nil, err
+		}
+		if v <= 0 {
+			return nil, fmt.Errorf("pick: 'weights[%d]' must be > 0, got %v", i, v)
+		}
+		weights[i] = v
+		total += v
+	}
+
+	// Build CDF
+	cdf := make([]float64, len(weights))
+	cumulative := 0.0
+	for i, w := range weights {
+		cumulative += w / total
+		cdf[i] = cumulative
+	}
+	cdf[len(cdf)-1] = 1.0 // clamp last to exactly 1.0
+
+	return cdf, nil
 }
 
 // validatePickValues validates the inline values array
@@ -221,10 +286,10 @@ func loadPickLines(r io.Reader, source string) ([]any, error) {
 // init registers the pick generator.
 func init() {
 	MustRegister("pick", func(config map[string]any) (Generator, error) {
-		values, err := validatePickConfig(config)
+		values, weights, err := validatePickConfig(config)
 		if err != nil {
 			return nil, err
 		}
-		return &PickGenerator{values: values}, nil
+		return &PickGenerator{values: values, weights: weights}, nil
 	})
 }

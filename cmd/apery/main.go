@@ -18,7 +18,10 @@ func main() {
 					{Name: "id", Gen: "seq"},
 					{Name: "employee_number", Gen: "seq"},
 					{Name: "is_active", Gen: "bool", Config: map[string]any{"probability": 0.7}},
-					{Name: "department", Gen: "pick", Config: map[string]any{"values": []any{"engineering", "sales"}}},
+					{Name: "department", Gen: "pick", Config: map[string]any{
+					"values":  []any{"engineering", "sales", "marketing", "support"},
+					"weights": []any{40, 30, 20, 10},
+				}},
 					{Name: "department_code", Gen: "int", Config: map[string]any{"max": 100}},
 					{Name: "idn", Gen: "ulid"},
 					{Name: "timestamp", Gen: "time", Config: map[string]any{"format": "2006-01-02"}},
@@ -38,8 +41,10 @@ func main() {
 						}},
 					},
 				}},
+				{Name: "status", Gen: "const", Config: map[string]any{"value": "active"}},
 				{Name: "tags", Gen: "list", Config: map[string]any{
-					"len": 3,
+					"min_len": 1,
+					"max_len": 4,
 					"item": map[string]any{"gen": "pick", "config": map[string]any{"values": []any{"admin", "beta", "premium", "internal", "vip"}}},
 				}},
 				},
