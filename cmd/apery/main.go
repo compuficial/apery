@@ -30,7 +30,17 @@ func main() {
 						"city":  map[string]any{"gen": "pick", "config": map[string]any{"values": []any{"New York", "Los Angeles", "Chicago", "Houston", "Phoenix"}}},
 						"zip":   map[string]any{"gen": "int", "config": map[string]any{"min": 10000, "max": 99999}},
 						"suite": map[string]any{"gen": "regex", "config": map[string]any{"pattern": `[A-Z]\d{3}`}},
+						"geo": map[string]any{"gen": "object", "config": map[string]any{
+							"fields": map[string]any{
+								"lat": map[string]any{"gen": "float", "config": map[string]any{"min": -90.0, "max": 90.0}},
+								"lng": map[string]any{"gen": "float", "config": map[string]any{"min": -180.0, "max": 180.0}},
+							},
+						}},
 					},
+				}},
+				{Name: "tags", Gen: "list", Config: map[string]any{
+					"len": 3,
+					"item": map[string]any{"gen": "pick", "config": map[string]any{"values": []any{"admin", "beta", "premium", "internal", "vip"}}},
 				}},
 				},
 			},

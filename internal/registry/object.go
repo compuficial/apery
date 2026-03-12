@@ -16,6 +16,7 @@ type objectField struct {
 	gen  Generator
 }
 
+// Next generates a map with each field produced by its sub-generator
 func (o *ObjectGenerator) Next(r *rng.Rng) (any, error) {
 	result := make(map[string]any, len(o.fields))
 	for _, field := range o.fields {
@@ -29,6 +30,7 @@ func (o *ObjectGenerator) Next(r *rng.Rng) (any, error) {
 	return result, nil
 }
 
+// validateObjectConfig validates config and instantiates sub-generators, sorted by field name
 func validateObjectConfig(config map[string]any) ([]objectField, error) {
 	rawFields, ok := config["fields"]
 	if !ok {

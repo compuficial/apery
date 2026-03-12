@@ -1,6 +1,6 @@
 # Spec Completion Checklist
 
-This checklist captures all work needed to fully implement the `sdg-spec.md` spec.
+This checklist captures all work needed to fully implement the `spec.md` spec.
 Items are grouped by spec sections and roadmap phases.
 
 ## Phase 1 - Core MVP
@@ -36,13 +36,18 @@ Items are grouped by spec sections and roadmap phases.
     - [x] ulid()
     - [x] seq(start,step)
     - [x] pick(values|file|url)
+    - [ ] pick weighted mode (weights array for non-uniform selection)
+    - [ ] const(value)
   - [ ] Composite generators
     - [x] object(fields)
-    - [ ] list(len,item)
+    - [x] list(len,item)
+    - [ ] list variable-length mode (min_len/max_len)
+    - [ ] sample(values, n) — pick N unique items without replacement
     - [ ] pipe(g1,g2)
     - [ ] one_of(gens,weights)
     - [ ] switch(key,cases)
     - [ ] when(cond,cases)
+    - [ ] template(tpl) — string interpolation with row field references
     - [ ] map(items,fn)
     - [ ] expr(code)
   - [ ] Relational generators

@@ -15,7 +15,7 @@ Apery generates synthetic data from declarative plans with guaranteed reproducib
 - Extensible generator registry
 - Multiple output formats (JSONL, CSV, Parquet, SQL, etc.)
 
-See [sdg-spec.md](docs/sdg-spec.md) for full design specification.
+See [spec.md](docs/spec.md) for full design specification.
 
 ## Quick Start
 

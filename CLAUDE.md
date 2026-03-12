@@ -134,7 +134,7 @@ The registry is global and thread-safe via init-time registration.
 
 ## Design Document
 
-The `sdg-spec.md` file contains the full specification and design philosophy. Key sections:
+The `spec.md` file contains the full specification and design philosophy. Key sections:
 - Determinism guarantees (Plan + Seed + Version = Identical Output)
 - Composition over code philosophy (minimal primitives + combinators)
 - AI-first design with MCP integration plans

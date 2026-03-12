@@ -198,16 +198,20 @@ The SDG ships a **minimal set** of primitives:
 * `ulid()` — generates ULID strings
 * `seq(start,step)` — generates sequential `int64` values
 * `pick(values|file|url)` — randomly selects from list
+* `pick(values|file|url, weights)` — weighted random selection from list; weights array must match values length, normalized automatically
+* `const(value)` — emits a fixed literal value on every row
 
 ### 5.2 Composite Generators
 
 * `object(fields)`
-* `list(len,item)`
+* `list(len|min_len+max_len, item)` — generates arrays; `len` for fixed length, or `min_len`/`max_len` for variable length (random uniform within range)
+* `sample(values|file|url, n|min_n+max_n)` — selects N unique items without replacement from a value set; errors if N exceeds available values
 * `pipe(g1,g2)`
 * `one_of(gens,weights)`
 * `switch(key,cases)`
 * `when(cond,cases)`
 * `map(items,fn)`
+* `template(tpl)` — string interpolation with `{field_name}` placeholders resolved from the current row
 * `expr(code)`
 
 ### 5.3 Relational Generators
@@ -1803,15 +1807,19 @@ Responses return deterministic output locations or streamed data.
 - ulid()
 - seq(start,step)
 - pick(values|file|url)
+- pick(values|file|url, weights)
+- const(value)
 
 #### A.4.2 Composite
 
 - object(fields)
-- list(len,item)
+- list(len|min_len+max_len, item)
+- sample(values|file|url, n|min_n+max_n)
 - pipe(g1,g2)
 - one_of(gens,weights)
 - switch(key,cases)
 - when(cond,cases)
+- template(tpl)
 - map(items,fn)
 - expr(code)
 
