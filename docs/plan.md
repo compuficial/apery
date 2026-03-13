@@ -12,8 +12,8 @@ Items are grouped by spec sections and roadmap phases.
   - [x] RNG implements `io.Reader` for entropy consumers (e.g., ULID).
   - [x] Implement chunk-based parallelism (default chunk size 50k rows).
   - [x] Deterministic row generation independent of worker scheduling.
-  - [ ] Concurrency stress tests that randomize worker counts/chunk sizes and compare digests.
-  - [ ] Determinism regression suite keyed by (Plan + Seed + Version).
+  - [x] Concurrency stress tests that randomize worker counts/chunk sizes and compare digests.
+  - [x] Determinism regression suite keyed by (Plan + Seed + Version).
   - [ ] Cross-version RNG compatibility and migration notes.
   - [ ] Statistical sanity checks for RNG-dependent generators.
   - [ ] RNG hot-path benchmarks (seed derivation + instantiation cost).

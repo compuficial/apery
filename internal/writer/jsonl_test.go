@@ -1,6 +1,9 @@
 package writer
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestJSONLWriter(t *testing.T) {
 	path := tempPath(t, "out.jsonl")
@@ -29,5 +32,23 @@ func TestJSONLWriter(t *testing.T) {
 	want := `{"_entity":"User","id":1,"name":"alice"}`
 	if lines[0] != want {
 		t.Fatalf("jsonl mismatch: got %q want %q", lines[0], want)
+	}
+}
+
+func TestJSONLWriterFromWriter(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewJSONLWriterFromWriter(&buf)
+
+	record := makeRecord("id", int64(1), "name", "alice")
+	if err := w.WriteRecord("User", record); err != nil {
+		t.Fatalf("WriteRecord: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	want := `{"_entity":"User","id":1,"name":"alice"}` + "\n"
+	if buf.String() != want {
+		t.Fatalf("got %q, want %q", buf.String(), want)
 	}
 }

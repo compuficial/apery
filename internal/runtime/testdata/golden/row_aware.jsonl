@@ -1,0 +1,10 @@
+{"_entity":"RowAware","active":false,"department":"engineering","score":99,"greeting":"Dept engineering, score=99","access":"full"}
+{"_entity":"RowAware","active":false,"department":"engineering","score":18,"greeting":"Dept engineering, score=18","access":"full"}
+{"_entity":"RowAware","active":true,"department":"support","score":30,"greeting":"Dept support, score=30","access":"limited"}
+{"_entity":"RowAware","active":true,"department":"engineering","score":31,"greeting":"Dept engineering, score=31","access":"full"}
+{"_entity":"RowAware","active":false,"department":"engineering","score":56,"greeting":"Dept engineering, score=56","access":"full"}
+{"_entity":"RowAware","active":true,"department":"support","score":58,"greeting":"Dept support, score=58","access":"limited"}
+{"_entity":"RowAware","active":false,"department":"sales","score":96,"greeting":"Dept sales, score=96","access":"read-only"}
+{"_entity":"RowAware","active":true,"department":"sales","score":85,"greeting":"Dept sales, score=85","access":"read-only"}
+{"_entity":"RowAware","active":true,"department":"support","score":58,"greeting":"Dept support, score=58","access":"limited"}
+{"_entity":"RowAware","active":false,"department":"sales","score":38,"greeting":"Dept sales, score=38","access":"read-only"}

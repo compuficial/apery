@@ -136,11 +136,11 @@ Three plans defined as Go structs in `determinism_helpers_test.go` (shared with 
 ```go
 {Name: "Composites", Count: 10000, Fields: []plan.FieldSpec{
     {Name: "address", Gen: "object", Config: map[string]any{
-        "fields": []any{
-            map[string]any{"name": "city",  "gen": "pick", "config": map[string]any{
+        "fields": map[string]any{
+            "city": map[string]any{"gen": "pick", "config": map[string]any{
                 "values": []any{"NYC", "LA", "CHI"},
             }},
-            map[string]any{"name": "zip", "gen": "int", "config": map[string]any{
+            "zip": map[string]any{"gen": "int", "config": map[string]any{
                 "min": 10000, "max": 99999,
             }},
         },

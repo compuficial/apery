@@ -1,0 +1,10 @@
+{"_entity":"Composites","address":{"city":"NYC","zip":29965},"tags":["alpha","beta"],"skills":["Rust"],"value":46}
+{"_entity":"Composites","address":{"city":"LA","zip":13897},"tags":["gamma","alpha"],"skills":["Python","Java","Go"],"value":35}
+{"_entity":"Composites","address":{"city":"LA","zip":55213},"tags":["gamma","alpha","gamma"],"skills":["Rust"],"value":88}
+{"_entity":"Composites","address":{"city":"NYC","zip":68043},"tags":["beta","beta"],"skills":["Java","C++"],"value":44}
+{"_entity":"Composites","address":{"city":"NYC","zip":39973},"tags":["alpha","gamma","gamma","gamma"],"skills":["Java","Rust","Go"],"value":17}
+{"_entity":"Composites","address":{"city":"LA","zip":75906},"tags":["beta","gamma","beta"],"skills":["Rust","Python","Go"],"value":63}
+{"_entity":"Composites","address":{"city":"LA","zip":18921},"tags":["alpha","alpha"],"skills":["Java","Rust","Python"],"value":0.053624951878568874}
+{"_entity":"Composites","address":{"city":"LA","zip":16486},"tags":["alpha"],"skills":["Java"],"value":0.35192288164407454}
+{"_entity":"Composites","address":{"city":"LA","zip":51657},"tags":["gamma","beta","gamma","alpha"],"skills":["C++"],"value":0.5864111957692064}
+{"_entity":"Composites","address":{"city":"LA","zip":95712},"tags":["alpha","gamma","gamma","beta"],"skills":["Go","C++","Python"],"value":51}

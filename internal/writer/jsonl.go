@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -23,6 +24,13 @@ func NewJSONLWriter(path string) (*JSONLWriter, error) {
 		file: f,
 		buf:  bufio.NewWriter(f),
 	}, nil
+}
+
+// NewJSONLWriterFromWriter creates a JSONL writer that writes to any io.Writer.
+func NewJSONLWriterFromWriter(w io.Writer) *JSONLWriter {
+	return &JSONLWriter{
+		buf: bufio.NewWriter(w),
+	}
 }
 
 // WriteRecord writes a single JSONL record with an _entity field.
@@ -46,11 +54,13 @@ func (w *JSONLWriter) WriteRecord(entity string, record *OrderedMap) error {
 	return nil
 }
 
-// Close flushes buffered data and closes the file.
+// Close flushes buffered data and closes the file (if one was opened).
 func (w *JSONLWriter) Close() error {
 	if err := w.buf.Flush(); err != nil {
 		return err
 	}
-
-	return w.file.Close()
+	if w.file != nil {
+		return w.file.Close()
+	}
+	return nil
 }

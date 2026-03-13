@@ -38,6 +38,23 @@ go test ./internal/registry
 make bench
 ```
 
+### Golden Determinism Tests
+
+Three canonical plans (scalar, composite, row-aware) in `internal/runtime/determinism_helpers_test.go` define the golden test fixtures. Both `TestGolden` and `TestStress` use these plans automatically.
+
+When adding a new generator, add a field to the appropriate canonical plan and regenerate golden files with `-update`. The stress tests will pick up the change automatically. If a new generator doesn't fit any existing plan category, create a new canonical plan in `determinism_helpers_test.go` and add it to the `canonicalPlans` slice — both `TestGolden` and `TestStress` will pick it up automatically.
+
+```bash
+# Run golden tests (compare against stored reference output)
+go test ./internal/runtime -run TestGolden -v
+
+# Regenerate golden files after intentional output changes
+go test ./internal/runtime -run TestGolden -update -v
+
+# Run concurrency stress tests
+go test ./internal/runtime -run TestStress -v
+```
+
 ## Architecture
 
 ### Core Components
@@ -119,6 +136,9 @@ Composite generators (e.g., `object`) instantiate sub-generators at factory time
 2. Implement `Generator` interface
 3. Register in `init()` function with factory
 4. Factory should validate config and return generator instance
+5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, or row-aware)
+6. Regenerate golden files: `go test ./internal/runtime -run TestGolden -update -v`
+7. Review the golden file diff and commit
 
 The registry is global and thread-safe via init-time registration.
 
