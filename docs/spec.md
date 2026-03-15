@@ -32,13 +32,12 @@ This guide describes how to **build the entire system end‑to‑end**, includin
 The core design rests on **minimal primitives** plus **combinators**, making user‑defined compositions far more powerful than a large fixed set of coded generators.
 
 The SDG does **not** ship 200 custom generators.
-It ships **~25 universal primitives**, and all complexity is built via:
+It ships **~22 universal primitives**, and all complexity is built via:
 
 * nested objects
 * lists
 * templates
-* conditions
-* expressions
+* conditional dispatch
 * catalogs
 
 This keeps the engine small, fast, and predictable.
@@ -206,13 +205,9 @@ The SDG ships a **minimal set** of primitives:
 * `object(fields)`
 * `list(len|min_len+max_len, item)` — generates arrays; `len` for fixed length, or `min_len`/`max_len` for variable length (random uniform within range)
 * `sample(values|file|url, n|min_n+max_n)` — selects N unique items without replacement from a value set; errors if N exceeds available values
-* `pipe(g1,g2)`
 * `one_of(gens,weights)`
 * `switch(key,cases)`
-* `when(cond,cases)`
-* `map(items,fn)`
 * `template(tpl)` — string interpolation with `{field_name}` placeholders resolved from the current row
-* `expr(code)`
 
 ### 5.3 Relational Generators
 
@@ -411,7 +406,6 @@ OpenAI schema:
 /internal/runtime
 /internal/registry
 /internal/catalog
-/internal/expr
 /internal/writer
 /internal/http
 /internal/mcp
@@ -879,39 +873,7 @@ func Register(c *Catalog) {
 }
 ```
 
-### 7. internal/expr/expr.go
-
-```go
-package expr
-
-import "fmt"
-
-type Engine interface {
- Compile(src string) (Program, error)
-}
-
-type Program interface {
- Eval(vars map[string]any) (any, error)
-}
-
-type noopEngine struct{}
-
-func (noopEngine) Compile(src string) (Program, error) {
- return noopProgram{src: src}, nil
-}
-
-type noopProgram struct {
- src string
-}
-
-func (p noopProgram) Eval(vars map[string]any) (any, error) {
- return nil, fmt.Errorf("expr: engine not implemented (src=%q)", p.src)
-}
-
-var Default Engine = noopEngine{}
-```
-
-### 8. internal/rng/rng.go
+### 7. internal/rng/rng.go
 
 ```go
 package rng
@@ -1815,13 +1777,9 @@ Responses return deterministic output locations or streamed data.
 - object(fields)
 - list(len|min_len+max_len, item)
 - sample(values|file|url, n|min_n+max_n)
-- pipe(g1,g2)
 - one_of(gens,weights)
 - switch(key,cases)
-- when(cond,cases)
 - template(tpl)
-- map(items,fn)
-- expr(code)
 
 #### A.4.3 Relational
 

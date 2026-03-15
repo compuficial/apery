@@ -38,18 +38,14 @@ Items are grouped by spec sections and roadmap phases.
     - [x] pick(values|file|url)
     - [x] pick weighted mode (weights array for non-uniform selection)
     - [x] const(value)
-  - [ ] Composite generators
+  - [x] Composite generators
     - [x] object(fields)
     - [x] list(len,item)
     - [x] list variable-length mode (min_len/max_len)
     - [x] sample(values, n) — pick N unique items without replacement
-    - [ ] pipe(g1,g2)
     - [x] one_of(gens,weights)
     - [x] switch(key,cases)
-    - [ ] when(cond,cases)
     - [x] template(tpl) — string interpolation with row field references
-    - [ ] map(items,fn)
-    - [ ] expr(code)
   - [ ] Relational generators
     - [ ] rel_ref(target,field)
     - [ ] m2m(target,meanDegree)
