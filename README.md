@@ -71,6 +71,15 @@ internal/
 - `template` - String interpolation with `{field_name}` placeholders from the current row
 - `switch` - Dispatch to sub-generator based on another field's value, with optional default
 
+### Relational Generators
+
+- `rel_ref` - Foreign key sampling from a previously generated entity's column (uniform or zipf distribution, optional `unique: true`)
+
+### Relational Concepts
+
+- **`DrivenBy`** - 1:M parent-driven child row generation. Sets Min/Max children per parent instead of a fixed Count.
+- **M:N relationships** - Composed via a junction entity using `DrivenBy` (1:M from left) + `rel_ref` with `unique: true` (M:1 to right)
+
 ## Example
 
 ```go
@@ -138,6 +147,43 @@ p := apery.Plan{
                     },
                     "default": map[string]any{"gen": "const", "config": map[string]any{"value": "standard"}},
                 }},
+            },
+        },
+        {
+            Name:  "Product",
+            Count: 500,
+            Fields: []apery.FieldSpec{
+                {Name: "id", Gen: "seq"},
+                {Name: "name", Gen: "regex", Config: map[string]any{"pattern": `[A-Z][a-z]{3,8} [A-Z][a-z]{2,6}`}},
+                {Name: "price", Gen: "int", Config: map[string]any{"min": 100, "max": 99999}},
+            },
+        },
+        {
+            // 1:M — each User gets 1-5 Orders (driven_by)
+            Name: "Order",
+            DrivenBy: &apery.DrivenBy{
+                Entity: "User", Field: "id", As: "user_id", Min: 1, Max: 5,
+            },
+            Fields: []apery.FieldSpec{
+                {Name: "order_id", Gen: "seq"},
+                {Name: "product_id", Gen: "rel_ref", Config: map[string]any{
+                    "entity": "Product", "field": "id",
+                }},
+                {Name: "quantity", Gen: "int", Config: map[string]any{"min": 1, "max": 10}},
+            },
+        },
+        {
+            // M:1 — Reviews reference Users (zipf) and Products (uniform)
+            Name:  "Review",
+            Count: 50_000,
+            Fields: []apery.FieldSpec{
+                {Name: "user_id", Gen: "rel_ref", Config: map[string]any{
+                    "entity": "User", "field": "id", "distribution": "zipf", "s": 1.5,
+                }},
+                {Name: "product_id", Gen: "rel_ref", Config: map[string]any{
+                    "entity": "Product", "field": "id",
+                }},
+                {Name: "rating", Gen: "int", Config: map[string]any{"min": 1, "max": 5}},
             },
         },
     },

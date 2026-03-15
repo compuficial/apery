@@ -40,7 +40,7 @@ make bench
 
 ### Golden Determinism Tests
 
-Three canonical plans (scalar, composite, row-aware) in `internal/runtime/determinism_helpers_test.go` define the golden test fixtures. Both `TestGolden` and `TestStress` use these plans automatically.
+Four canonical plans (scalar, composite, row-aware, relational) in `internal/runtime/determinism_helpers_test.go` define the golden test fixtures. Both `TestGolden` and `TestStress` use these plans automatically.
 
 When adding a new generator, add a field to the appropriate canonical plan and regenerate golden files with `-update`. The stress tests will pick up the change automatically. If a new generator doesn't fit any existing plan category, create a new canonical plan in `determinism_helpers_test.go` and add it to the `canonicalPlans` slice — both `TestGolden` and `TestStress` will pick it up automatically.
 
@@ -63,20 +63,25 @@ go test ./internal/runtime -run TestStress -v
 
 1. **Plan** (`internal/plan`): Declarative schema defining entities, fields, and generators
    - `Plan`: Top-level structure with seed and entities
-   - `EntitySpec`: Defines a table/collection with name, count, and fields
+   - `EntitySpec`: Defines a table/collection with name, count (or DrivenBy), and fields
    - `FieldSpec`: Individual field with generator name and config
+   - `DrivenBy`: Configures parent-driven child row generation (1:M relationships)
 
 2. **Registry** (`internal/registry`): Generator factory and plugin system
    - Global registry pattern with `Register()` (returns error), `MustRegister()` (panic on error), and `Get()`
    - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
-   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`
+   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `rel_ref`
+   - Interfaces: `Generator`, `RowAwareGenerator`, `DependencyDeclarer`, `ReadOnlyEntityStore`, `EntityStore`, `Resettable`
 
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
    - Executes plans by iterating entities and fields
    - Creates per-field RNGs using hierarchical seed derivation
    - Chunked parallel execution with configurable worker count and chunk size
    - Generates records row-by-row and writes via writer interface
+   - Cross-entity column store (`mapEntityStore`) for relational generators
+   - Two-phase driven_by execution: count generation then chunked parallel generation
+   - Parent-aligned chunking for entities with unique rel_ref fields
 
 4. **Writer** (`internal/writer`): Output abstraction
    - `Writer` interface with `WriteRecord()` and `Close()`
@@ -99,9 +104,10 @@ The seed derivation hierarchy:
 ```
 Root Seed (from Plan)
   └─> Entity Seed (derived from root + entity name/index)
-      └─> Field Seed (derived from entity seed + field name)
-          └─> Row Seed (derived from field seed + row index)
-              └─> Sub-Field Seed (derived from row seed + sub-field name, for composite generators)
+      ├─> Field Seed (derived from entity seed + field name)
+      │   └─> Row Seed (derived from field seed + row index)
+      │       └─> Sub-Field Seed (derived from row seed + sub-field name, for composite generators)
+      └─> Count Seed (derived from entity seed + "count[i]", for driven_by child count per parent)
 ```
 
 Composite generators (e.g., `object`) use `rng.Derive(r.GetSeed(), subFieldName)` to derive child seeds from the parent row seed, keeping the hierarchy clean and order-independent.
@@ -130,13 +136,28 @@ func init() {
 
 Composite generators (e.g., `object`) instantiate sub-generators at factory time and store them in the struct. During `Next()`, they derive child seeds using `rng.Derive(r.GetSeed(), fieldName)` for each sub-field, ensuring deterministic output independent of field ordering.
 
+### Relational Generators
+
+**`rel_ref`** samples values from a previously generated entity's column. Supports uniform (default) and zipf distributions, with optional `unique: true` for deduplication within a parent batch. Uses `ReadOnlyEntityStore` injected via the `_store` config key at chunk time.
+
+**`DrivenBy`** configures 1:M parent-driven child row generation. When set on `EntitySpec`, the executor generates Min to Max children per parent row instead of using Count. The parent field value is auto-injected into each child row under `DrivenBy.As`.
+
+**M:N relationships** are composed from `driven_by` (1:M from left entity) + `rel_ref` with `unique: true` (M:1 to right entity) on a junction entity.
+
+Key design rules:
+- Entities must be declared in dependency order (downstream after upstream)
+- `DrivenBy.Min >= 1` (always produces at least one child per parent)
+- Config keys starting with `_` are reserved for internal use
+- `Resettable` generators are reset on parent transitions in driven_by chunks
+- Standalone entities with `unique: true` `rel_ref` force single-threaded execution
+
 ### Adding New Generators
 
 1. Create file in `internal/registry/` (e.g., `mygen.go`)
 2. Implement `Generator` interface
 3. Register in `init()` function with factory
 4. Factory should validate config and return generator instance
-5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, or row-aware)
+5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, row-aware, or relational)
 6. Regenerate golden files: `go test ./internal/runtime -run TestGolden -update -v`
 7. Review the golden file diff and commit
 
@@ -144,10 +165,14 @@ The registry is global and thread-safe via init-time registration.
 
 ## Key Files
 
-- `cmd/apery/main.go`: Entry point with example plan
-- `internal/plan/plan.go`: Data structures for declarative plans
-- `internal/registry/registry.go`: Generator registry core
-- `internal/runtime/executor.go`: Execution orchestrator
+- `cmd/apery/main.go`: Entry point with example plan (scalar, composite, relational)
+- `internal/plan/plan.go`: Data structures for declarative plans (`Plan`, `EntitySpec`, `FieldSpec`, `DrivenBy`)
+- `internal/plan/validate.go`: Plan validation including relational constraints
+- `internal/registry/registry.go`: Generator registry core and interfaces
+- `internal/registry/rel_ref.go`: Relational foreign key generator
+- `internal/runtime/executor.go`: Execution orchestrator with store wiring
+- `internal/runtime/driven_by.go`: Driven-by execution path and layout computation
+- `internal/runtime/entity_store.go`: Cross-entity column store
 - `internal/writer/jsonl.go`: JSONL output writer
 - `internal/writer/csv.go`: CSV output writer
 - `internal/rng/rng.go`: Deterministic RNG with seed derivation

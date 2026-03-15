@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -466,6 +467,174 @@ func TestExecutorRowAwareDeterminism(t *testing.T) {
 	for i := range a {
 		if a[i] != b[i] {
 			t.Fatalf("row %d: %q != %q", i, a[i], b[i])
+		}
+	}
+}
+
+func TestExecutorRelRef(t *testing.T) {
+	var buf bytes.Buffer
+	w := writer.NewJSONLWriterFromWriter(&buf)
+
+	p := &plan.Plan{
+		Seed: 99,
+		Entities: []plan.EntitySpec{
+			{Name: "User", Count: 5, Fields: []plan.FieldSpec{
+				{Name: "id", Gen: "seq"},
+			}},
+			{Name: "Order", Count: 10, Fields: []plan.FieldSpec{
+				{Name: "user_id", Gen: "rel_ref", Config: map[string]any{
+					"entity": "User", "field": "id",
+				}},
+			}},
+		},
+	}
+
+	e := New(w, WithWorkers(1), WithChunkSize(100))
+	if err := e.Run(t.Context(), p); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	// 5 User rows + 10 Order rows = 15 lines
+	if len(lines) != 15 {
+		t.Fatalf("expected 15 lines, got %d", len(lines))
+	}
+}
+
+func TestExecutorDrivenBy(t *testing.T) {
+	var buf bytes.Buffer
+	w := writer.NewJSONLWriterFromWriter(&buf)
+
+	p := &plan.Plan{
+		Seed: 42,
+		Entities: []plan.EntitySpec{
+			{Name: "User", Count: 3, Fields: []plan.FieldSpec{
+				{Name: "id", Gen: "seq"},
+			}},
+			{Name: "Order", DrivenBy: &plan.DrivenBy{
+				Entity: "User", Field: "id", As: "user_id", Min: 2, Max: 2,
+			}, Fields: []plan.FieldSpec{
+				{Name: "amount", Gen: "int", Config: map[string]any{"min": 1, "max": 100}},
+			}},
+		},
+	}
+
+	e := New(w, WithWorkers(1), WithChunkSize(100))
+	if err := e.Run(t.Context(), p); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	// 3 Users + 6 Orders (3 parents × 2 children each) = 9 lines
+	if len(lines) != 9 {
+		t.Fatalf("expected 9 lines, got %d", len(lines))
+	}
+
+	// Check that Order lines have user_id field with values 1, 1, 2, 2, 3, 3
+	orderLines := lines[3:]
+	for i, line := range orderLines {
+		expectedUserID := (i / 2) + 1
+		expected := fmt.Sprintf(`"user_id":%d`, expectedUserID)
+		if !strings.Contains(line, expected) {
+			t.Errorf("order line %d: expected %s, got: %s", i, expected, line)
+		}
+	}
+}
+
+func TestExecutorManyToMany(t *testing.T) {
+	var buf bytes.Buffer
+	w := writer.NewJSONLWriterFromWriter(&buf)
+
+	p := &plan.Plan{
+		Seed: 42,
+		Entities: []plan.EntitySpec{
+			{Name: "Student", Count: 10, Fields: []plan.FieldSpec{
+				{Name: "id", Gen: "seq"},
+			}},
+			{Name: "Course", Count: 5, Fields: []plan.FieldSpec{
+				{Name: "id", Gen: "seq"},
+			}},
+			{Name: "Enrollment", DrivenBy: &plan.DrivenBy{
+				Entity: "Student", Field: "id", As: "student_id", Min: 2, Max: 3,
+			}, Fields: []plan.FieldSpec{
+				{Name: "course_id", Gen: "rel_ref", Config: map[string]any{
+					"entity": "Course", "field": "id", "unique": true,
+				}},
+			}},
+		},
+	}
+
+	e := New(w, WithWorkers(4), WithChunkSize(5))
+	if err := e.Run(t.Context(), p); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	studentLines := 10
+	courseLines := 5
+	enrollmentLines := len(lines) - studentLines - courseLines
+	if enrollmentLines < 20 || enrollmentLines > 30 {
+		t.Fatalf("expected 20-30 enrollment lines, got %d", enrollmentLines)
+	}
+}
+
+func TestExecutorDrivenByDeterminism(t *testing.T) {
+	p := &plan.Plan{
+		Seed: 42,
+		Entities: []plan.EntitySpec{
+			{Name: "User", Count: 100, Fields: []plan.FieldSpec{
+				{Name: "id", Gen: "seq"},
+			}},
+			{Name: "Order", DrivenBy: &plan.DrivenBy{
+				Entity: "User", Field: "id", As: "user_id", Min: 1, Max: 5,
+			}, Fields: []plan.FieldSpec{
+				{Name: "amount", Gen: "int", Config: map[string]any{"min": 1, "max": 100}},
+			}},
+		},
+	}
+
+	data1 := runPlanWithOpts(t, p, WithWorkers(1), WithChunkSize(1000))
+	data2 := runPlanWithOpts(t, p, WithWorkers(4), WithChunkSize(50))
+
+	if !bytes.Equal(data1, data2) {
+		t.Fatal("driven_by output differs between worker configurations")
+	}
+}
+
+func TestExecutorDrivenBySeqContiguous(t *testing.T) {
+	var buf bytes.Buffer
+	w := writer.NewJSONLWriterFromWriter(&buf)
+
+	p := &plan.Plan{
+		Seed: 42,
+		Entities: []plan.EntitySpec{
+			{Name: "User", Count: 3, Fields: []plan.FieldSpec{
+				{Name: "id", Gen: "seq"},
+			}},
+			{Name: "Order", DrivenBy: &plan.DrivenBy{
+				Entity: "User", Field: "id", As: "user_id", Min: 2, Max: 2,
+			}, Fields: []plan.FieldSpec{
+				{Name: "order_id", Gen: "seq"},
+			}},
+		},
+	}
+
+	e := New(w, WithWorkers(1), WithChunkSize(100))
+	if err := e.Run(t.Context(), p); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	orderLines := lines[3:] // Skip 3 User lines
+	if len(orderLines) != 6 {
+		t.Fatalf("expected 6 order lines, got %d", len(orderLines))
+	}
+
+	// seq should produce contiguous IDs: 1, 2, 3, 4, 5, 6
+	for i, line := range orderLines {
+		expected := fmt.Sprintf(`"order_id":%d`, i+1)
+		if !strings.Contains(line, expected) {
+			t.Errorf("order line %d: expected %s, got: %s", i, expected, line)
 		}
 	}
 }

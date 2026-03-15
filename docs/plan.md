@@ -18,8 +18,8 @@ Items are grouped by spec sections and roadmap phases.
   - [ ] Statistical sanity checks for RNG-dependent generators.
   - [ ] RNG hot-path benchmarks (seed derivation + instantiation cost).
   - [ ] Seed serialization/format stability guarantees.
-  - [ ] Uniqueness enforcement (bounded retries, entropy estimation, Bloom prechecks).
-  - [ ] Relation resolution (M:1 alias sampling, 1:M multinomial, M:N degree + dedupe).
+  - [x] Uniqueness enforcement (bounded retries with Resettable interface for per-parent reset).
+  - [x] Relation resolution (M:1 via rel_ref, 1:M via DrivenBy, M:N via composition).
 
 - [ ] Full primitive generator set
   - [x] Scalar generators
@@ -46,9 +46,10 @@ Items are grouped by spec sections and roadmap phases.
     - [x] one_of(gens,weights)
     - [x] switch(key,cases)
     - [x] template(tpl) — string interpolation with row field references
-  - [ ] Relational generators
-    - [ ] rel_ref(target,field)
-    - [ ] m2m(target,meanDegree)
+  - [x] Relational generators
+    - [x] rel_ref(entity,field) — foreign key sampling with uniform/zipf distribution and optional unique mode
+    - [x] DrivenBy — parent-driven 1:M child row generation
+    - [x] M:N via composition (driven_by + rel_ref unique on junction entity)
 
 - [ ] Writers
   - [x] JSONL writer (streaming).

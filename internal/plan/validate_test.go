@@ -97,7 +97,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errContains: "count must be > 0",
+			errContains: "exactly one of Count or DrivenBy",
 		},
 		{
 			name: "entity count negative",
@@ -114,7 +114,7 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			expectError: true,
-			errContains: "count must be > 0",
+			errContains: "exactly one of Count or DrivenBy",
 		},
 		{
 			name: "entity no fields",
@@ -206,6 +206,216 @@ func TestValidate(t *testing.T) {
 			},
 			expectError: true,
 			errContains: "duplicate field name",
+		},
+		// --- DrivenBy validation ---
+		{
+			name: "valid driven_by plan",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", DrivenBy: &DrivenBy{
+						Entity: "User", Field: "id", As: "user_id", Min: 1, Max: 5,
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "driven_by entity not declared before",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Order", DrivenBy: &DrivenBy{
+						Entity: "User", Field: "id", As: "user_id", Min: 1, Max: 3,
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+				},
+			},
+			expectError: true,
+			errContains: "not declared before",
+		},
+		{
+			name: "driven_by field not in parent",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", DrivenBy: &DrivenBy{
+						Entity: "User", Field: "email", As: "user_email", Min: 1, Max: 3,
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "field 'email' does not exist",
+		},
+		{
+			name: "driven_by as conflicts with child field",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", DrivenBy: &DrivenBy{
+						Entity: "User", Field: "id", As: "amount", Min: 1, Max: 3,
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "conflicts with declared field",
+		},
+		{
+			name: "driven_by min less than 1",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", DrivenBy: &DrivenBy{
+						Entity: "User", Field: "id", As: "user_id", Min: 0, Max: 3,
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "min must be >= 1",
+		},
+		{
+			name: "driven_by max less than min",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", DrivenBy: &DrivenBy{
+						Entity: "User", Field: "id", As: "user_id", Min: 5, Max: 3,
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "max must be >= min",
+		},
+		{
+			name: "count and driven_by both set",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", Count: 50, DrivenBy: &DrivenBy{
+						Entity: "User", Field: "id", As: "user_id", Min: 1, Max: 3,
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "exactly one of Count or DrivenBy",
+		},
+		{
+			name: "neither count nor driven_by",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+				},
+			},
+			expectError: true,
+			errContains: "exactly one of Count or DrivenBy",
+		},
+		{
+			name: "self-referencing driven_by",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", DrivenBy: &DrivenBy{
+						Entity: "User", Field: "id", As: "parent_id", Min: 1, Max: 2,
+					}, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+				},
+			},
+			expectError: true,
+			errContains: "not declared before",
+		},
+		{
+			name: "reserved config key",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{
+						{Name: "id", Gen: "seq", Config: map[string]any{"_store": "bad"}},
+					}},
+				},
+			},
+			expectError: true,
+			errContains: "reserved for internal use",
+		},
+		{
+			name: "rel_ref entity not declared before",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Order", Count: 10, Fields: []FieldSpec{
+						{Name: "user_id", Gen: "rel_ref", Config: map[string]any{"entity": "User", "field": "id"}},
+					}},
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+				},
+			},
+			expectError: true,
+			errContains: "not declared before",
+		},
+		{
+			name: "rel_ref field not in target entity",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", Count: 10, Fields: []FieldSpec{
+						{Name: "user_id", Gen: "rel_ref", Config: map[string]any{"entity": "User", "field": "email"}},
+					}},
+				},
+			},
+			expectError: true,
+			errContains: "field 'email' does not exist",
+		},
+		{
+			name: "valid rel_ref plan",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", Count: 50, Fields: []FieldSpec{
+						{Name: "user_id", Gen: "rel_ref", Config: map[string]any{"entity": "User", "field": "id"}},
+					}},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "unique feasibility exceeded",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Item", Count: 3, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Cart", DrivenBy: &DrivenBy{
+						Entity: "Item", Field: "id", As: "item_id", Min: 1, Max: 5,
+					}, Fields: []FieldSpec{
+						{Name: "extra_item", Gen: "rel_ref", Config: map[string]any{
+							"entity": "Item", "field": "id", "unique": true,
+						}},
+					}},
+				},
+			},
+			expectError: true,
+			errContains: "unique rel_ref",
+		},
+		{
+			name: "driven_by references parent As field",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "User", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Order", DrivenBy: &DrivenBy{
+						Entity: "User", Field: "id", As: "user_id", Min: 1, Max: 3,
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+					{Name: "LineItem", DrivenBy: &DrivenBy{
+						Entity: "Order", Field: "user_id", As: "order_user_id", Min: 1, Max: 2,
+					}, Fields: []FieldSpec{{Name: "qty", Gen: "int"}}},
+				},
+			},
+			expectError: false,
 		},
 	}
 

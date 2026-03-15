@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 
 	"apery/internal/plan"
@@ -87,30 +88,56 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 		return err
 	}
 
+	store := newMapEntityStore()
+	required := requiredColumns(p.Entities)
+
 	for idx := range p.Entities {
-		if err := e.runEntity(ctx, p.Seed, idx, &p.Entities[idx]); err != nil {
-			return fmt.Errorf("failed to generate %s entity: %w", p.Entities[idx].Name, err)
+		entity := &p.Entities[idx]
+		var records []*writer.OrderedMap
+		var genErr error
+
+		if entity.DrivenBy != nil {
+			records, genErr = e.runDrivenByEntity(ctx, p.Seed, idx, entity, store)
+		} else {
+			records, genErr = e.runEntity(ctx, p.Seed, idx, entity, store)
+		}
+		if genErr != nil {
+			return fmt.Errorf("failed to generate %s entity: %w", entity.Name, genErr)
+		}
+
+		for _, record := range records {
+			if err := e.writer.WriteRecord(entity.Name, record); err != nil {
+				return err
+			}
+		}
+
+		// Extract and store required columns.
+		for key := range required {
+			parts := strings.SplitN(key, ".", 2)
+			if parts[0] == entity.Name {
+				store.StoreColumn(entity.Name, parts[1], extractColumn(records, parts[1]))
+			}
 		}
 	}
 
 	return nil
 }
 
-// runEntity generates all rows for a single entity.
-func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, entity *plan.EntitySpec) error {
+// runEntity generates all rows for a standalone entity (one with Count set).
+func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, entity *plan.EntitySpec, store registry.ReadOnlyEntityStore) ([]*writer.OrderedMap, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 
 	entitySeed := rng.Derive(rng.SeedFromInt64(seed), fmt.Sprintf("%s[%d]", entity.Name, entityIndex))
 	fields, err := e.initFields(entity, entitySeed)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	chunks := makeChunks(entity.Count, e.chunkSize)
 	if len(chunks) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -131,12 +158,17 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, e
 	}
 
 	workers := e.workerCount()
+	// Unique rel_ref requires serial execution for entity-scoped uniqueness.
+	if hasUniqueRelRef(entity) {
+		workers = 1
+	}
+
 	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for ch := range chunkCh {
-				records, err := e.runChunk(ctx, entity, fields, ch)
+				records, err := e.runChunk(ctx, entity, fields, ch, store)
 				if err != nil {
 					setErr(err)
 					return
@@ -160,24 +192,26 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, e
 	}
 
 	if firstErr != nil {
-		return firstErr
+		return nil, firstErr
 	}
 
+	var allRecords []*writer.OrderedMap
 	for _, records := range results {
-		for _, record := range records {
-			if err := e.writer.WriteRecord(entity.Name, record); err != nil {
-				return err
-			}
-		}
+		allRecords = append(allRecords, records...)
 	}
 
-	return nil
+	return allRecords, nil
 }
 
 // initFields initializes generators and seeds for entity fields.
 func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed rng.Seed) ([]fieldRuntime, error) {
 	fields := make([]fieldRuntime, 0, len(entity.Fields))
 	knownFields := make(map[string]bool)
+
+	// If driven_by, the As field is auto-injected and counts as known.
+	if entity.DrivenBy != nil {
+		knownFields[entity.DrivenBy.As] = true
+	}
 
 	for _, field := range entity.Fields {
 		factory, err := registry.FactoryFor(field.Gen)
@@ -229,10 +263,18 @@ type chunkField struct {
 	seed rng.Seed
 }
 
-func (e *Executor) runChunk(ctx context.Context, entity *plan.EntitySpec, fields []fieldRuntime, ch chunk) ([]*writer.OrderedMap, error) {
+func (e *Executor) runChunk(ctx context.Context, entity *plan.EntitySpec, fields []fieldRuntime, ch chunk, store registry.ReadOnlyEntityStore) ([]*writer.OrderedMap, error) {
 	chunkFields := make([]chunkField, 0, len(fields))
 	for _, field := range fields {
-		gen, err := field.factory(field.config)
+		var gen registry.Generator
+		var err error
+		if field.genName == "rel_ref" && store != nil {
+			cfg := copyConfig(field.config)
+			cfg["_store"] = store
+			gen, err = field.factory(cfg)
+		} else {
+			gen, err = field.factory(field.config)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("field '%s': %w", field.name, err)
 		}
@@ -275,6 +317,59 @@ func (e *Executor) runChunk(ctx context.Context, entity *plan.EntitySpec, fields
 	}
 
 	return records, nil
+}
+
+// copyConfig returns a shallow copy of a config map.
+func copyConfig(cfg map[string]any) map[string]any {
+	out := make(map[string]any, len(cfg)+1)
+	for k, v := range cfg {
+		out[k] = v
+	}
+	return out
+}
+
+// requiredColumns scans all entities to determine which (entity, field) pairs
+// need to be stored for downstream rel_ref and DrivenBy references.
+func requiredColumns(entities []plan.EntitySpec) map[string]bool {
+	required := make(map[string]bool)
+	for _, e := range entities {
+		if e.DrivenBy != nil {
+			required[e.DrivenBy.Entity+"."+e.DrivenBy.Field] = true
+		}
+		for _, f := range e.Fields {
+			if f.Gen == "rel_ref" {
+				entity, _ := f.Config["entity"].(string)
+				field, _ := f.Config["field"].(string)
+				if entity != "" && field != "" {
+					required[entity+"."+field] = true
+				}
+			}
+		}
+	}
+	return required
+}
+
+// extractColumn collects a single field's values from generated records.
+func extractColumn(records []*writer.OrderedMap, fieldName string) []any {
+	col := make([]any, len(records))
+	for i, rec := range records {
+		val, _ := rec.Get(fieldName)
+		col[i] = val
+	}
+	return col
+}
+
+// hasUniqueRelRef returns true if any field in the entity is a rel_ref
+// generator with unique: true in its config.
+func hasUniqueRelRef(entity *plan.EntitySpec) bool {
+	for _, f := range entity.Fields {
+		if f.Gen == "rel_ref" {
+			if u, ok := f.Config["unique"].(bool); ok && u {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // closeWithError closes the writer and joins errors if needed.

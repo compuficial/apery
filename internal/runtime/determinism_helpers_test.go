@@ -109,6 +109,38 @@ var rowAwarePlan = plan.Plan{
 	},
 }
 
+var relationalPlan = plan.Plan{
+	Seed: goldenSeed,
+	Entities: []plan.EntitySpec{
+		{Name: "Customer", Count: 100, Fields: []plan.FieldSpec{
+			{Name: "id", Gen: "seq"},
+			{Name: "name", Gen: "regex", Config: map[string]any{"pattern": "[A-Z][a-z]{4,8}"}},
+		}},
+		{Name: "Product", Count: 50, Fields: []plan.FieldSpec{
+			{Name: "id", Gen: "seq"},
+			{Name: "price", Gen: "int", Config: map[string]any{"min": 100, "max": 9999}},
+		}},
+		{Name: "Order", DrivenBy: &plan.DrivenBy{
+			Entity: "Customer", Field: "id", As: "customer_id", Min: 1, Max: 5,
+		}, Fields: []plan.FieldSpec{
+			{Name: "order_id", Gen: "seq"},
+			{Name: "product_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Product", "field": "id",
+			}},
+			{Name: "amount", Gen: "int", Config: map[string]any{"min": 1, "max": 10}},
+		}},
+		{Name: "Review", Count: 200, Fields: []plan.FieldSpec{
+			{Name: "customer_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Customer", "field": "id", "distribution": "zipf", "s": 1.5,
+			}},
+			{Name: "product_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Product", "field": "id",
+			}},
+			{Name: "rating", Gen: "int", Config: map[string]any{"min": 1, "max": 5}},
+		}},
+	},
+}
+
 // canonicalPlans is the ordered set of plans used by golden and stress tests.
 var canonicalPlans = []struct {
 	name string
@@ -117,6 +149,7 @@ var canonicalPlans = []struct {
 	{"scalar", &scalarPlan},
 	{"composite", &compositePlan},
 	{"row_aware", &rowAwarePlan},
+	{"relational", &relationalPlan},
 }
 
 // runPlanWithOpts runs a plan into a buffer and returns the raw JSONL output bytes.

@@ -82,3 +82,24 @@ type RowAwareGenerator interface {
 type DependencyDeclarer interface {
 	Dependencies() []string
 }
+
+// ReadOnlyEntityStore provides read access to columns from previously generated entities.
+// Generators (e.g., rel_ref) use this to sample foreign key values.
+type ReadOnlyEntityStore interface {
+	// GetColumn retrieves a previously stored column. Returns false if not found.
+	GetColumn(entity, field string) ([]any, bool)
+}
+
+// EntityStore extends ReadOnlyEntityStore with write access.
+// The executor populates the store after each entity completes generation.
+type EntityStore interface {
+	ReadOnlyEntityStore
+	// StoreColumn saves all values for the given entity and field.
+	StoreColumn(entity, field string, values []any)
+}
+
+// Resettable is implemented by generators with internal state that must be
+// cleared between parent batches in driven_by entities (e.g., unique trackers).
+type Resettable interface {
+	Reset()
+}

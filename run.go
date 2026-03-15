@@ -11,6 +11,7 @@ type (
 	Plan       = plan.Plan
 	EntitySpec = plan.EntitySpec
 	FieldSpec  = plan.FieldSpec
+	DrivenBy   = plan.DrivenBy
 
 	Writer     = writer.Writer
 	OrderedMap = writer.OrderedMap
