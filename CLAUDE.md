@@ -107,7 +107,7 @@ Root Seed (from Plan)
       ├─> Field Seed (derived from entity seed + field name)
       │   └─> Row Seed (derived from field seed + row index)
       │       └─> Sub-Field Seed (derived from row seed + sub-field name, for composite generators)
-      └─> Count Seed (derived from entity seed + "count[i]", for driven_by child count per parent)
+      └─> Count Seed (derived from entity seed + "counts" + parent index, for driven_by child count per parent)
 ```
 
 Composite generators (e.g., `object`) use `rng.Derive(r.GetSeed(), subFieldName)` to derive child seeds from the parent row seed, keeping the hierarchy clean and order-independent.

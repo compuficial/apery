@@ -11,13 +11,21 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"strings"
 	"sync"
 
 	"apery/internal/plan"
 	"apery/internal/registry"
 	"apery/internal/rng"
 	"apery/internal/writer"
+)
+
+// Generator name and config key constants used for special-case behavior.
+const (
+	genRelRef     = "rel_ref"
+	cfgStore      = "_store"
+	cfgEntity     = "entity"
+	cfgField      = "field"
+	cfgUnique     = "unique"
 )
 
 type Executor struct {
@@ -112,10 +120,9 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 		}
 
 		// Extract and store required columns.
-		for key := range required {
-			parts := strings.SplitN(key, ".", 2)
-			if parts[0] == entity.Name {
-				store.StoreColumn(entity.Name, parts[1], extractColumn(records, parts[1]))
+		if fields, ok := required[entity.Name]; ok {
+			for _, fieldName := range fields {
+				store.StoreColumn(entity.Name, fieldName, extractColumn(records, fieldName))
 			}
 		}
 	}
@@ -140,67 +147,15 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, e
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	chunkCh := make(chan chunk)
-	resultCh := make(chan chunkResult, len(chunks))
-
-	var wg sync.WaitGroup
-	var firstErr error
-	var errOnce sync.Once
-
-	setErr := func(err error) {
-		errOnce.Do(func() {
-			firstErr = err
-			cancel()
-		})
-	}
-
 	workers := e.workerCount()
 	// Unique rel_ref requires serial execution for entity-scoped uniqueness.
 	if hasUniqueRelRef(entity) {
 		workers = 1
 	}
 
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for ch := range chunkCh {
-				records, err := e.runChunk(ctx, entity, fields, ch, store)
-				if err != nil {
-					setErr(err)
-					return
-				}
-				resultCh <- chunkResult{index: ch.Index, records: records}
-			}
-		}()
-	}
-
-	for _, ch := range chunks {
-		chunkCh <- ch
-	}
-	close(chunkCh)
-
-	wg.Wait()
-	close(resultCh)
-
-	results := make([][]*writer.OrderedMap, len(chunks))
-	for res := range resultCh {
-		results[res.index] = res.records
-	}
-
-	if firstErr != nil {
-		return nil, firstErr
-	}
-
-	var allRecords []*writer.OrderedMap
-	for _, records := range results {
-		allRecords = append(allRecords, records...)
-	}
-
-	return allRecords, nil
+	return runChunksParallel(ctx, chunks, workers, func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
+		return e.runChunk(ctx, fields, ch, store)
+	})
 }
 
 // initFields initializes generators and seeds for entity fields.
@@ -257,20 +212,89 @@ type seekableGenerator interface {
 	SeekRow(row int64) error
 }
 
+// chunkField holds a per-chunk generator instance with precomputed type flags.
 type chunkField struct {
-	name string
-	gen  registry.Generator
-	seed rng.Seed
+	name     string
+	gen      registry.Generator
+	seed     rng.Seed
+	rowAware registry.RowAwareGenerator // non-nil if gen implements RowAwareGenerator
 }
 
-func (e *Executor) runChunk(ctx context.Context, entity *plan.EntitySpec, fields []fieldRuntime, ch chunk, store registry.ReadOnlyEntityStore) ([]*writer.OrderedMap, error) {
-	chunkFields := make([]chunkField, 0, len(fields))
+// chunkRunner is a function that processes a single chunk and returns records.
+type chunkRunner func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error)
+
+// runChunksParallel distributes chunks across workers, collects results in order,
+// and returns the flattened records. This is the shared fan-out pattern used by
+// both runEntity and runDrivenByEntity.
+func runChunksParallel(ctx context.Context, chunks []chunk, workers int, runner chunkRunner) ([]*writer.OrderedMap, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	chunkCh := make(chan chunk)
+	resultCh := make(chan chunkResult, len(chunks))
+
+	var wg sync.WaitGroup
+	var firstErr error
+	var errOnce sync.Once
+
+	setErr := func(err error) {
+		errOnce.Do(func() {
+			firstErr = err
+			cancel()
+		})
+	}
+
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ch := range chunkCh {
+				records, err := runner(ctx, ch)
+				if err != nil {
+					setErr(err)
+					return
+				}
+				resultCh <- chunkResult{index: ch.Index, records: records}
+			}
+		}()
+	}
+
+	for _, ch := range chunks {
+		chunkCh <- ch
+	}
+	close(chunkCh)
+
+	wg.Wait()
+	close(resultCh)
+
+	results := make([][]*writer.OrderedMap, len(chunks))
+	for res := range resultCh {
+		results[res.index] = res.records
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
+	var allRecords []*writer.OrderedMap
+	for _, records := range results {
+		allRecords = append(allRecords, records...)
+	}
+
+	return allRecords, nil
+}
+
+// instantiateChunkFields creates per-chunk generator instances from field
+// runtimes, injecting the entity store for rel_ref generators and seeking
+// seekable generators to the chunk start row.
+func instantiateChunkFields(fields []fieldRuntime, ch chunk, store registry.ReadOnlyEntityStore) ([]chunkField, error) {
+	cfs := make([]chunkField, 0, len(fields))
 	for _, field := range fields {
 		var gen registry.Generator
 		var err error
-		if field.genName == "rel_ref" && store != nil {
+		if field.genName == genRelRef && store != nil {
 			cfg := copyConfig(field.config)
-			cfg["_store"] = store
+			cfg[cfgStore] = store
 			gen, err = field.factory(cfg)
 		} else {
 			gen, err = field.factory(field.config)
@@ -283,11 +307,43 @@ func (e *Executor) runChunk(ctx context.Context, entity *plan.EntitySpec, fields
 				return nil, fmt.Errorf("field '%s': %w", field.name, err)
 			}
 		}
-		chunkFields = append(chunkFields, chunkField{
-			name: field.name,
-			gen:  gen,
-			seed: field.seed,
-		})
+		cf := chunkField{name: field.name, gen: gen, seed: field.seed}
+		if ra, ok := gen.(registry.RowAwareGenerator); ok {
+			cf.rowAware = ra
+		}
+		cfs = append(cfs, cf)
+	}
+	return cfs, nil
+}
+
+// generateFieldValues produces values for all fields in a single row and sets
+// them on the record. This is the shared inner loop used by both runChunk and
+// runDrivenByChunk.
+func generateFieldValues(fields []chunkField, row int64, record *writer.OrderedMap) error {
+	for i := range fields {
+		f := &fields[i]
+		rowSeed := rng.DeriveIndex(f.seed, row)
+		r := rng.New(rowSeed)
+
+		var val any
+		var err error
+		if f.rowAware != nil {
+			val, err = f.rowAware.NextWithRow(r, record)
+		} else {
+			val, err = f.gen.Next(r)
+		}
+		if err != nil {
+			return fmt.Errorf("row %d, field '%s': %w", row, f.name, err)
+		}
+		record.Set(f.name, val)
+	}
+	return nil
+}
+
+func (e *Executor) runChunk(ctx context.Context, fields []fieldRuntime, ch chunk, store registry.ReadOnlyEntityStore) ([]*writer.OrderedMap, error) {
+	chunkFields, err := instantiateChunkFields(fields, ch, store)
+	if err != nil {
+		return nil, err
 	}
 
 	records := make([]*writer.OrderedMap, 0, int(ch.End-ch.Start))
@@ -297,21 +353,8 @@ func (e *Executor) runChunk(ctx context.Context, entity *plan.EntitySpec, fields
 		}
 
 		record := writer.NewOrderedMap()
-		for _, field := range chunkFields {
-			rowSeed := rng.DeriveIndex(field.seed, row)
-			r := rng.New(rowSeed)
-
-			var val any
-			var err error
-			if ra, ok := field.gen.(registry.RowAwareGenerator); ok {
-				val, err = ra.NextWithRow(r, record)
-			} else {
-				val, err = field.gen.Next(r)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("row %d, field '%s': %w", row, field.name, err)
-			}
-			record.Set(field.name, val)
+		if err := generateFieldValues(chunkFields, row, record); err != nil {
+			return nil, err
 		}
 		records = append(records, record)
 	}
@@ -328,25 +371,43 @@ func copyConfig(cfg map[string]any) map[string]any {
 	return out
 }
 
-// requiredColumns scans all entities to determine which (entity, field) pairs
+// requiredColumns scans all entities to determine which fields per entity
 // need to be stored for downstream rel_ref and DrivenBy references.
-func requiredColumns(entities []plan.EntitySpec) map[string]bool {
-	required := make(map[string]bool)
+// Returns a map of entity name -> list of field names to store.
+func requiredColumns(entities []plan.EntitySpec) map[string][]string {
+	// Use a set to deduplicate, then convert to slices.
+	sets := make(map[string]map[string]bool)
+	addRequired := func(entity, field string) {
+		if sets[entity] == nil {
+			sets[entity] = make(map[string]bool)
+		}
+		sets[entity][field] = true
+	}
+
 	for _, e := range entities {
 		if e.DrivenBy != nil {
-			required[e.DrivenBy.Entity+"."+e.DrivenBy.Field] = true
+			addRequired(e.DrivenBy.Entity, e.DrivenBy.Field)
 		}
 		for _, f := range e.Fields {
-			if f.Gen == "rel_ref" {
-				entity, _ := f.Config["entity"].(string)
-				field, _ := f.Config["field"].(string)
+			if f.Gen == genRelRef {
+				entity, _ := f.Config[cfgEntity].(string)
+				field, _ := f.Config[cfgField].(string)
 				if entity != "" && field != "" {
-					required[entity+"."+field] = true
+					addRequired(entity, field)
 				}
 			}
 		}
 	}
-	return required
+
+	result := make(map[string][]string, len(sets))
+	for entity, fieldSet := range sets {
+		fields := make([]string, 0, len(fieldSet))
+		for field := range fieldSet {
+			fields = append(fields, field)
+		}
+		result[entity] = fields
+	}
+	return result
 }
 
 // extractColumn collects a single field's values from generated records.
@@ -363,8 +424,8 @@ func extractColumn(records []*writer.OrderedMap, fieldName string) []any {
 // generator with unique: true in its config.
 func hasUniqueRelRef(entity *plan.EntitySpec) bool {
 	for _, f := range entity.Fields {
-		if f.Gen == "rel_ref" {
-			if u, ok := f.Config["unique"].(bool); ok && u {
+		if f.Gen == genRelRef {
+			if u, ok := f.Config[cfgUnique].(bool); ok && u {
 				return true
 			}
 		}

@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+// validationContext holds shared state accumulated during plan validation.
+type validationContext struct {
+	entityNames  map[string]struct{}
+	entityFields map[string]map[string]bool // entity name -> set of field names (including DrivenBy.As)
+	entitySpecs  map[string]*EntitySpec
+}
+
 // Validate checks that a plan is well-formed and returns an error if not.
 func Validate(p *Plan) error {
 	if p == nil {
@@ -16,19 +23,19 @@ func Validate(p *Plan) error {
 		return errors.New("plan: no entities defined")
 	}
 
-	entityNames := make(map[string]struct{}, len(p.Entities))
-	// Maps entity name -> set of field names (including DrivenBy.As).
-	entityFields := make(map[string]map[string]bool, len(p.Entities))
-	// Maps entity name -> entity spec for cross-entity checks.
-	entitySpecs := make(map[string]*EntitySpec, len(p.Entities))
+	vc := &validationContext{
+		entityNames:  make(map[string]struct{}, len(p.Entities)),
+		entityFields: make(map[string]map[string]bool, len(p.Entities)),
+		entitySpecs:  make(map[string]*EntitySpec, len(p.Entities)),
+	}
 
 	for i := range p.Entities {
 		e := &p.Entities[i]
-		if err := validateEntity(e, i, entityNames, entityFields, entitySpecs); err != nil {
+		if err := validateEntity(e, i, vc); err != nil {
 			return err
 		}
-		entityNames[e.Name] = struct{}{}
-		entitySpecs[e.Name] = e
+		vc.entityNames[e.Name] = struct{}{}
+		vc.entitySpecs[e.Name] = e
 
 		// Build field set for this entity (including injected As field).
 		fields := make(map[string]bool, len(e.Fields)+1)
@@ -38,17 +45,17 @@ func Validate(p *Plan) error {
 		for _, f := range e.Fields {
 			fields[f.Name] = true
 		}
-		entityFields[e.Name] = fields
+		vc.entityFields[e.Name] = fields
 	}
 	return nil
 }
 
-func validateEntity(e *EntitySpec, index int, existingNames map[string]struct{}, entityFields map[string]map[string]bool, entitySpecs map[string]*EntitySpec) error {
+func validateEntity(e *EntitySpec, index int, vc *validationContext) error {
 	if e.Name == "" {
 		return fmt.Errorf("plan: entity[%d]: missing name", index)
 	}
 
-	if _, dup := existingNames[e.Name]; dup {
+	if _, dup := vc.entityNames[e.Name]; dup {
 		return fmt.Errorf("plan: duplicate entity name: %q", e.Name)
 	}
 
@@ -60,7 +67,7 @@ func validateEntity(e *EntitySpec, index int, existingNames map[string]struct{},
 	}
 
 	if hasDrivenBy {
-		if err := validateDrivenBy(e, existingNames, entityFields); err != nil {
+		if err := validateDrivenBy(e, vc); err != nil {
 			return err
 		}
 	}
@@ -72,7 +79,7 @@ func validateEntity(e *EntitySpec, index int, existingNames map[string]struct{},
 	fieldNames := make(map[string]struct{}, len(e.Fields))
 	for i := range e.Fields {
 		f := &e.Fields[i]
-		if err := validateField(f, e, i, fieldNames, existingNames, entityFields, entitySpecs); err != nil {
+		if err := validateField(f, e, i, fieldNames, vc); err != nil {
 			return err
 		}
 		fieldNames[f.Name] = struct{}{}
@@ -81,16 +88,16 @@ func validateEntity(e *EntitySpec, index int, existingNames map[string]struct{},
 	return nil
 }
 
-func validateDrivenBy(e *EntitySpec, existingNames map[string]struct{}, entityFields map[string]map[string]bool) error {
+func validateDrivenBy(e *EntitySpec, vc *validationContext) error {
 	db := e.DrivenBy
 
 	// Parent entity must be declared before this entity.
-	if _, exists := existingNames[db.Entity]; !exists {
+	if _, exists := vc.entityNames[db.Entity]; !exists {
 		return fmt.Errorf("plan: entity[%q]: driven_by entity %q not declared before %q", e.Name, db.Entity, e.Name)
 	}
 
 	// Parent field must exist in the parent entity.
-	parentFields := entityFields[db.Entity]
+	parentFields := vc.entityFields[db.Entity]
 	if !parentFields[db.Field] {
 		return fmt.Errorf("plan: entity[%q]: driven_by field '%s' does not exist in entity %q", e.Name, db.Field, db.Entity)
 	}
@@ -112,7 +119,7 @@ func validateDrivenBy(e *EntitySpec, existingNames map[string]struct{}, entityFi
 	return nil
 }
 
-func validateField(f *FieldSpec, entity *EntitySpec, index int, existingNames map[string]struct{}, entityNames map[string]struct{}, entityFields map[string]map[string]bool, entitySpecs map[string]*EntitySpec) error {
+func validateField(f *FieldSpec, entity *EntitySpec, index int, existingNames map[string]struct{}, vc *validationContext) error {
 	if f.Name == "" {
 		return fmt.Errorf("plan: entity[%q].fields[%d]: missing name", entity.Name, index)
 	}
@@ -134,7 +141,7 @@ func validateField(f *FieldSpec, entity *EntitySpec, index int, existingNames ma
 
 	// Validate rel_ref cross-entity references.
 	if f.Gen == "rel_ref" {
-		if err := validateRelRef(f, entity, entityNames, entityFields, entitySpecs); err != nil {
+		if err := validateRelRef(f, entity, vc); err != nil {
 			return err
 		}
 	}
@@ -142,7 +149,7 @@ func validateField(f *FieldSpec, entity *EntitySpec, index int, existingNames ma
 	return nil
 }
 
-func validateRelRef(f *FieldSpec, entity *EntitySpec, entityNames map[string]struct{}, entityFields map[string]map[string]bool, entitySpecs map[string]*EntitySpec) error {
+func validateRelRef(f *FieldSpec, entity *EntitySpec, vc *validationContext) error {
 	targetEntity, _ := f.Config["entity"].(string)
 	targetField, _ := f.Config["field"].(string)
 
@@ -154,12 +161,12 @@ func validateRelRef(f *FieldSpec, entity *EntitySpec, entityNames map[string]str
 	}
 
 	// Target entity must be declared before this entity.
-	if _, exists := entityNames[targetEntity]; !exists {
+	if _, exists := vc.entityNames[targetEntity]; !exists {
 		return fmt.Errorf("plan: entity[%q].fields[%q]: rel_ref entity %q not declared before %q", entity.Name, f.Name, targetEntity, entity.Name)
 	}
 
 	// Target field must exist in the target entity.
-	targetFields := entityFields[targetEntity]
+	targetFields := vc.entityFields[targetEntity]
 	if !targetFields[targetField] {
 		return fmt.Errorf("plan: entity[%q].fields[%q]: rel_ref field '%s' does not exist in entity %q", entity.Name, f.Name, targetField, targetEntity)
 	}
@@ -168,7 +175,7 @@ func validateRelRef(f *FieldSpec, entity *EntitySpec, entityNames map[string]str
 	// DrivenBy.Max must not exceed the target entity's Count.
 	unique, _ := f.Config["unique"].(bool)
 	if unique && entity.DrivenBy != nil {
-		targetSpec := entitySpecs[targetEntity]
+		targetSpec := vc.entitySpecs[targetEntity]
 		if targetSpec != nil && targetSpec.Count > 0 && entity.DrivenBy.Max > targetSpec.Count {
 			return fmt.Errorf("plan: entity[%q].fields[%q]: unique rel_ref to %q (count=%d) infeasible: driven_by max=%d exceeds available values",
 				entity.Name, f.Name, targetEntity, targetSpec.Count, entity.DrivenBy.Max)

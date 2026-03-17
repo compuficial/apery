@@ -5,7 +5,11 @@ import (
 	"fmt"
 )
 
-const maxUniqueRetries = 100
+const (
+	maxUniqueRetries = 100
+	distUniform      = "uniform"
+	distZipf         = "zipf"
+)
 
 // RelRefGenerator samples values from a previously generated entity's column.
 // It reads from a ReadOnlyEntityStore injected via the "_store" config key.
@@ -13,7 +17,7 @@ type RelRefGenerator struct {
 	entity string
 	field  string
 	store  ReadOnlyEntityStore
-	dist   string // "uniform" or "zipf"
+	dist   string // distUniform or distZipf
 	zipfS  float64
 
 	// unique tracking (stateful across Next calls within a parent batch)
@@ -65,7 +69,7 @@ func (g *RelRefGenerator) Reset() {
 }
 
 func (g *RelRefGenerator) sampleIndex(r *rng.Rng, n int64) int64 {
-	if g.dist == "zipf" {
+	if g.dist == distZipf {
 		z := r.NewZipf(g.zipfS, 1.0, uint64(n-1))
 		return int64(z.Uint64())
 	}
@@ -83,14 +87,14 @@ func init() {
 			return nil, fmt.Errorf("rel_ref: 'field' is required and must be a string")
 		}
 
-		dist := "uniform"
+		dist := distUniform
 		if d, exists := config["distribution"]; exists {
 			ds, ok := d.(string)
 			if !ok {
 				return nil, fmt.Errorf("rel_ref: 'distribution' must be a string")
 			}
-			if ds != "uniform" && ds != "zipf" {
-				return nil, fmt.Errorf("rel_ref: 'distribution' must be \"uniform\" or \"zipf\", got %q", ds)
+			if ds != distUniform && ds != distZipf {
+				return nil, fmt.Errorf("rel_ref: 'distribution' must be %q or %q, got %q", distUniform, distZipf, ds)
 			}
 			dist = ds
 		}

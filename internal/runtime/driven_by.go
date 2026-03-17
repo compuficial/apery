@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"sync"
 
 	"apery/internal/plan"
 	"apery/internal/registry"
@@ -28,8 +27,9 @@ func computeDrivenByLayout(entitySeed rng.Seed, db *plan.DrivenBy, parentValues 
 	prefixSum := make([]int64, n)
 	var total int64
 
+	countBaseSeed := rng.Derive(entitySeed, "counts")
 	for i := int64(0); i < n; i++ {
-		countSeed := rng.Derive(entitySeed, fmt.Sprintf("count[%d]", i))
+		countSeed := rng.DeriveIndex(countBaseSeed, i)
 		r := rng.New(countSeed)
 		count := db.Min
 		if db.Max > db.Min {
@@ -49,7 +49,8 @@ func computeDrivenByLayout(entitySeed rng.Seed, db *plan.DrivenBy, parentValues 
 }
 
 // parentForRow returns the parent index for a given global row index
-// using binary search on the prefix sum.
+// using binary search on the prefix sum. Used only during chunk boundary
+// alignment; the hot path uses linear tracking instead.
 func (l *drivenByLayout) parentForRow(globalRow int64) int64 {
 	idx := sort.Search(len(l.prefixSum), func(i int) bool {
 		return l.prefixSum[i] > globalRow
@@ -117,128 +118,63 @@ func (e *Executor) runDrivenByEntity(ctx context.Context, seed int64, entityInde
 	needsAlignment := hasUniqueRelRef(entity)
 	chunks := makeDrivenByChunks(layout, e.chunkSize, needsAlignment)
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	chunkCh := make(chan chunk)
-	resultCh := make(chan chunkResult, len(chunks))
-
-	var wg sync.WaitGroup
-	var firstErr error
-	var errOnce sync.Once
-	setErr := func(err error) {
-		errOnce.Do(func() {
-			firstErr = err
-			cancel()
-		})
-	}
-
-	workers := e.workerCount()
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for ch := range chunkCh {
-				records, err := e.runDrivenByChunk(ctx, entity, fields, ch, store, layout)
-				if err != nil {
-					setErr(err)
-					return
-				}
-				resultCh <- chunkResult{index: ch.Index, records: records}
-			}
-		}()
-	}
-	for _, ch := range chunks {
-		chunkCh <- ch
-	}
-	close(chunkCh)
-	wg.Wait()
-	close(resultCh)
-
-	results := make([][]*writer.OrderedMap, len(chunks))
-	for res := range resultCh {
-		results[res.index] = res.records
-	}
-	if firstErr != nil {
-		return nil, firstErr
-	}
-
-	var all []*writer.OrderedMap
-	for _, records := range results {
-		all = append(all, records...)
-	}
-	return all, nil
+	return runChunksParallel(ctx, chunks, e.workerCount(), func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
+		return e.runDrivenByChunk(ctx, entity, fields, ch, store, layout)
+	})
 }
 
 // runDrivenByChunk generates rows for a driven_by entity chunk.
-// It maps global row indices to parent indices, injects the parent value,
-// and resets Resettable generators on parent transitions.
+// It tracks parent transitions linearly (O(1) amortized), injects the parent
+// value, and resets Resettable generators on parent transitions.
 func (e *Executor) runDrivenByChunk(ctx context.Context, entity *plan.EntitySpec, fields []fieldRuntime, ch chunk, store registry.ReadOnlyEntityStore, layout *drivenByLayout) ([]*writer.OrderedMap, error) {
 	db := entity.DrivenBy
 
-	chunkFields := make([]chunkField, 0, len(fields))
-	for _, field := range fields {
-		var gen registry.Generator
-		var err error
-		if field.genName == "rel_ref" && store != nil {
-			cfg := copyConfig(field.config)
-			cfg["_store"] = store
-			gen, err = field.factory(cfg)
-		} else {
-			gen, err = field.factory(field.config)
+	chunkFields, err := instantiateChunkFields(fields, ch, store)
+	if err != nil {
+		return nil, err
+	}
+
+	// Precompute which fields are Resettable to avoid per-row type assertions.
+	resettables := make([]registry.Resettable, 0)
+	for _, cf := range chunkFields {
+		if r, ok := cf.gen.(registry.Resettable); ok {
+			resettables = append(resettables, r)
 		}
-		if err != nil {
-			return nil, fmt.Errorf("field '%s': %w", field.name, err)
-		}
-		if seeker, ok := gen.(seekableGenerator); ok {
-			if err := seeker.SeekRow(ch.Start); err != nil {
-				return nil, fmt.Errorf("field '%s': %w", field.name, err)
-			}
-		}
-		chunkFields = append(chunkFields, chunkField{name: field.name, gen: gen, seed: field.seed})
 	}
 
 	records := make([]*writer.OrderedMap, 0, int(ch.End-ch.Start))
-	lastParent := int64(-1)
+
+	// Linear parent tracking: advance parentIdx when row crosses the boundary.
+	parentIdx := layout.parentForRow(ch.Start)
+	nextParentRow := layout.total // sentinel: no more parents
+	if parentIdx+1 < int64(len(layout.prefixSum)) {
+		nextParentRow = layout.prefixSum[parentIdx+1]
+	}
 
 	for row := ch.Start; row < ch.End; row++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		parentIdx := layout.parentForRow(row)
-
-		// Reset Resettable generators on parent transition.
-		if parentIdx != lastParent {
-			if lastParent != -1 {
-				for _, cf := range chunkFields {
-					if r, ok := cf.gen.(registry.Resettable); ok {
-						r.Reset()
-					}
-				}
+		// Advance parent when row crosses boundary (O(1) amortized).
+		if row >= nextParentRow {
+			for _, r := range resettables {
+				r.Reset()
 			}
-			lastParent = parentIdx
+			parentIdx++
+			if parentIdx+1 < int64(len(layout.prefixSum)) {
+				nextParentRow = layout.prefixSum[parentIdx+1]
+			} else {
+				nextParentRow = layout.total
+			}
 		}
 
 		record := writer.NewOrderedMap()
 		// Inject parent value as first field.
 		record.Set(db.As, layout.parentCol[parentIdx])
 
-		for _, field := range chunkFields {
-			rowSeed := rng.DeriveIndex(field.seed, row)
-			r := rng.New(rowSeed)
-
-			var val any
-			var err error
-			if ra, ok := field.gen.(registry.RowAwareGenerator); ok {
-				val, err = ra.NextWithRow(r, record)
-			} else {
-				val, err = field.gen.Next(r)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("row %d, field '%s': %w", row, field.name, err)
-			}
-			record.Set(field.name, val)
+		if err := generateFieldValues(chunkFields, row, record); err != nil {
+			return nil, err
 		}
 		records = append(records, record)
 	}
