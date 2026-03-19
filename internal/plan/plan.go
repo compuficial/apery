@@ -8,17 +8,17 @@ package plan
 
 // Plan represents a full generation request
 type Plan struct {
-	Seed     int64
-	Entities []EntitySpec
+	Seed     int64        `json:"seed" yaml:"seed"`
+	Entities []EntitySpec `json:"entities" yaml:"entities"`
 }
 
 // EntitySpec defines a table/collection to generate.
 // Exactly one of Count or DrivenBy must be set.
 type EntitySpec struct {
-	Name     string
-	Count    int64
-	DrivenBy *DrivenBy
-	Fields   []FieldSpec
+	Name     string      `json:"name" yaml:"name"`
+	Count    int64       `json:"count,omitempty" yaml:"count,omitempty"`
+	DrivenBy *DrivenBy   `json:"driven_by,omitempty" yaml:"driven_by,omitempty"`
+	Fields   []FieldSpec `json:"fields" yaml:"fields"`
 }
 
 // DrivenBy configures parent-driven child row generation (1:M relationships).
@@ -26,16 +26,16 @@ type EntitySpec struct {
 // parent row instead of using Count. The parent's Field value is auto-injected
 // into each child row under the name As.
 type DrivenBy struct {
-	Entity string // parent entity name
-	Field  string // parent field to inject into child rows
-	As     string // field name in child row for the injected value
-	Min    int64  // minimum children per parent (must be >= 1)
-	Max    int64  // maximum children per parent (must be >= Min)
+	Entity string `json:"entity" yaml:"entity"` // parent entity name
+	Field  string `json:"field" yaml:"field"`   // parent field to inject into child rows
+	As     string `json:"as" yaml:"as"`          // field name in child row for the injected value
+	Min    int64  `json:"min" yaml:"min"`        // minimum children per parent (must be >= 1)
+	Max    int64  `json:"max" yaml:"max"`        // maximum children per parent (must be >= Min)
 }
 
 // FieldSpec defines a single column/field
 type FieldSpec struct {
-	Name   string
-	Gen    string
-	Config map[string]any
+	Name   string         `json:"name" yaml:"name"`
+	Gen    string         `json:"gen" yaml:"gen"`
+	Config map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
 }
