@@ -9,8 +9,9 @@ import (
 )
 
 type JSONLWriter struct {
-	file *os.File
-	buf  *bufio.Writer
+	file       *os.File
+	buf        *bufio.Writer
+	omitEntity bool
 }
 
 // NewJSONLWriter creates a JSONL writer at the given path.
@@ -33,10 +34,22 @@ func NewJSONLWriterFromWriter(w io.Writer) *JSONLWriter {
 	}
 }
 
-// WriteRecord writes a single JSONL record with an _entity field.
+// NewJSONLWriterSplit creates a JSONL writer at the given path that omits the _entity field.
+func NewJSONLWriterSplit(path string) (*JSONLWriter, error) {
+	w, err := NewJSONLWriter(path)
+	if err != nil {
+		return nil, err
+	}
+	w.omitEntity = true
+	return w, nil
+}
+
+// WriteRecord writes a single JSONL record, prepending _entity unless omitEntity is set.
 func (w *JSONLWriter) WriteRecord(entity string, record *OrderedMap) error {
 	out := record.Clone()
-	out.Prepend("_entity", entity)
+	if !w.omitEntity {
+		out.Prepend("_entity", entity)
+	}
 
 	data, err := json.Marshal(out)
 	if err != nil {

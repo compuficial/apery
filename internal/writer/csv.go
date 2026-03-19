@@ -3,14 +3,16 @@ package writer
 import (
 	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 )
 
 type CSVWriter struct {
-	file  *os.File
-	w     *csv.Writer
-	keys  []string
-	initd bool
+	file       *os.File
+	w          *csv.Writer
+	keys       []string
+	initd      bool
+	omitEntity bool
 }
 
 // NewCSVWriter creates a CSV writer at the given path.
@@ -20,6 +22,21 @@ func NewCSVWriter(path string) (*CSVWriter, error) {
 		return nil, fmt.Errorf("csv: create %s: %w", path, err)
 	}
 	return &CSVWriter{file: f, w: csv.NewWriter(f)}, nil
+}
+
+// NewCSVWriterFromWriter creates a CSV writer that writes to any io.Writer.
+func NewCSVWriterFromWriter(w io.Writer) *CSVWriter {
+	return &CSVWriter{w: csv.NewWriter(w)}
+}
+
+// NewCSVWriterSplit creates a CSV writer at the given path that omits the _entity column.
+func NewCSVWriterSplit(path string) (*CSVWriter, error) {
+	w, err := NewCSVWriter(path)
+	if err != nil {
+		return nil, err
+	}
+	w.omitEntity = true
+	return w, nil
 }
 
 // WriteRecord writes a CSV row and emits a header on the first record.
@@ -37,15 +54,25 @@ func (w *CSVWriter) WriteRecord(entity string, record *OrderedMap) error {
 			keys = append(keys, key)
 		}
 		w.keys = keys
-		header := append([]string{"_entity"}, w.keys...)
+		var header []string
+		if w.omitEntity {
+			header = w.keys
+		} else {
+			header = append([]string{"_entity"}, w.keys...)
+		}
 		if err := w.w.Write(header); err != nil {
 			return fmt.Errorf("csv: header: %w", err)
 		}
 		w.initd = true
 	}
 
-	row := make([]string, 0, len(w.keys)+1)
-	row = append(row, entity)
+	var row []string
+	if w.omitEntity {
+		row = make([]string, 0, len(w.keys))
+	} else {
+		row = make([]string, 0, len(w.keys)+1)
+		row = append(row, entity)
+	}
 	for _, key := range w.keys {
 		val, ok := record.Get(key)
 		if !ok || val == nil {
@@ -60,11 +87,14 @@ func (w *CSVWriter) WriteRecord(entity string, record *OrderedMap) error {
 	return nil
 }
 
-// Close flushes buffered data and closes the file.
+// Close flushes buffered data and closes the file (if one was opened).
 func (w *CSVWriter) Close() error {
 	w.w.Flush()
 	if err := w.w.Error(); err != nil {
 		return fmt.Errorf("csv: flush: %w", err)
 	}
-	return w.file.Close()
+	if w.file != nil {
+		return w.file.Close()
+	}
+	return nil
 }
