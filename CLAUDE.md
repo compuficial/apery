@@ -82,11 +82,13 @@ go test ./internal/runtime -run TestStress -v
    - Cross-entity column store (`mapEntityStore`) for relational generators
    - Two-phase driven_by execution: count generation then chunked parallel generation
    - Parent-aligned chunking for entities with unique rel_ref fields
+   - Structured logging via `*slog.Logger` (Info for entity progress, Debug for seeds/chunks)
 
 4. **Writer** (`internal/writer`): Output abstraction
    - `Writer` interface with `WriteRecord()` and `Close()`
-   - `JSONLWriter`: Streams newline-delimited JSON to file
-   - `CSVWriter`: Streams CSV rows with a header
+   - `JSONLWriter`: Streams newline-delimited JSON to file or `io.Writer`
+   - `CSVWriter`: Streams CSV rows with a header to file or `io.Writer`
+   - `SplitWriter`: Routes records to per-entity files (omits `_entity` column)
    - Uses `OrderedMap` to preserve field order in output
 
 5. **RNG** (`internal/rng`): Deterministic random number generation
@@ -165,25 +167,29 @@ The registry is global and thread-safe via init-time registration.
 
 ## Key Files
 
-- `cmd/apery/main.go`: Entry point with example plan (scalar, composite, relational)
+- `cmd/apery/main.go`: Cobra root command, version subcommand, exit codes
+- `cmd/apery/generate.go`: Generate subcommand with all flags and writer wiring
+- `cmd/apery/validate.go`: Validate subcommand
+- `cmd/apery/generators.go`: `list generators` and `describe generator` subcommands
 - `internal/plan/plan.go`: Data structures for declarative plans (`Plan`, `EntitySpec`, `FieldSpec`, `DrivenBy`)
+- `internal/plan/load.go`: YAML/JSON plan file loading with `LoadFile()`
 - `internal/plan/validate.go`: Plan validation including relational constraints
-- `internal/registry/registry.go`: Generator registry core and interfaces
+- `internal/registry/registry.go`: Generator registry, `GeneratorInfo`, `MustRegisterInfo`, `ListGenerators`
 - `internal/registry/rel_ref.go`: Relational foreign key generator
-- `internal/runtime/executor.go`: Execution orchestrator with store wiring
+- `internal/runtime/executor.go`: Execution orchestrator with slog-based structured logging
 - `internal/runtime/driven_by.go`: Driven-by execution path and layout computation
 - `internal/runtime/entity_store.go`: Cross-entity column store
-- `internal/writer/jsonl.go`: JSONL output writer
-- `internal/writer/csv.go`: CSV output writer
+- `internal/writer/jsonl.go`: JSONL output writer (file, io.Writer, split mode)
+- `internal/writer/csv.go`: CSV output writer (file, io.Writer, split mode)
+- `internal/writer/split.go`: Per-entity file routing writer
 - `internal/rng/rng.go`: Deterministic RNG with seed derivation
+- `run.go`: Public API re-exports for library usage
 
-## Design Document
+## Design Documents
 
-The `spec.md` file contains the full specification and design philosophy. Key sections:
-- Determinism guarantees (Plan + Seed + Version = Identical Output)
-- Composition over code philosophy (minimal primitives + combinators)
-- AI-first design with MCP integration plans
-- Planned features: GraphQL API, NLP plan compiler, advanced writers
+- `docs/spec-v2.md`: Current specification — CLI-first, agent-oriented, grounded in the actual codebase
+- `docs/spec.md`: Original aspirational spec (historical reference only — contains unplanned features like GraphQL, MCP, NLP compiler)
+- `docs/plan.md`: Implementation checklist tracking what's done and what's next
 
 ## Module Information
 
@@ -192,6 +198,8 @@ The `spec.md` file contains the full specification and design philosophy. Key se
 - External dependencies:
   - `github.com/google/uuid` - UUID generation
   - `github.com/oklog/ulid/v2` - ULID generation
+  - `github.com/spf13/cobra` - CLI framework
+  - `gopkg.in/yaml.v3` - YAML plan file parsing
 
 ## Testing
 

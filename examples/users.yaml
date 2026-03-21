@@ -1,0 +1,24 @@
+seed: 42
+entities:
+  - name: User
+    count: 20
+    fields:
+      - name: id
+        gen: seq
+      - name: name
+        gen: pick
+        config:
+          values: [Alice, Bob, Carol, Dave, Eve, Frank]
+      - name: email
+        gen: regex
+        config:
+          pattern: "[a-z]{5,10}@(gmail|yahoo|outlook)\\.com"
+      - name: age
+        gen: int
+        config:
+          min: 18
+          max: 65
+      - name: active
+        gen: bool
+        config:
+          probability: 0.8

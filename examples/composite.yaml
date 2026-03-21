@@ -1,0 +1,75 @@
+seed: 7
+entities:
+  - name: User
+    count: 10
+    fields:
+      - name: id
+        gen: ulid
+      - name: department
+        gen: pick
+        config:
+          values: [engineering, sales, marketing, support]
+          weights: [40, 30, 20, 10]
+      - name: address
+        gen: object
+        config:
+          fields:
+            city:
+              gen: pick
+              config:
+                values: [New York, Los Angeles, Chicago, Houston, Phoenix]
+            zip:
+              gen: int
+              config:
+                min: 10000
+                max: 99999
+            geo:
+              gen: object
+              config:
+                fields:
+                  lat:
+                    gen: float
+                    config:
+                      min: 25.0
+                      max: 48.0
+                  lng:
+                    gen: float
+                    config:
+                      min: -125.0
+                      max: -70.0
+      - name: tags
+        gen: list
+        config:
+          min_len: 1
+          max_len: 4
+          item:
+            gen: pick
+            config:
+              values: [admin, beta, premium, internal, vip]
+      - name: skills
+        gen: sample
+        config:
+          values: [Go, Python, Rust, TypeScript, Java, C++, Ruby, Kotlin]
+          min_n: 2
+          max_n: 5
+      - name: greeting
+        gen: template
+        config:
+          tpl: "Welcome to {department}!"
+      - name: access_level
+        gen: switch
+        config:
+          key: department
+          cases:
+            engineering:
+              gen: const
+              config:
+                value: full
+            sales:
+              gen: const
+              config:
+                value: read-only
+          default:
+            gen: const
+            config:
+              value: standard

@@ -1,119 +1,90 @@
-# Spec Completion Checklist
+# Implementation Checklist
 
-This checklist captures all work needed to fully implement the `spec.md` spec.
-Items are grouped by spec sections and roadmap phases.
+This checklist tracks work needed to complete Apery. Items are grouped by priority.
+See `docs/spec-v2.md` for the full specification.
 
-## Phase 1 - Core MVP
+## Phase 1 — Core Engine (Done)
 
-- [ ] RNG rewrite and execution engine
-  - [x] Replace RNG with PCG (`rand.NewPCG`) and `Seed`-based construction.
-  - [x] Seed derivation helpers (`Derive`, `DeriveIndex`) for hierarchical determinism.
-  - [x] Per-row RNG instantiation from derived seeds in the executor.
-  - [x] RNG implements `io.Reader` for entropy consumers (e.g., ULID).
-  - [x] Implement chunk-based parallelism (default chunk size 50k rows).
-  - [x] Deterministic row generation independent of worker scheduling.
-  - [x] Concurrency stress tests that randomize worker counts/chunk sizes and compare digests.
-  - [x] Determinism regression suite keyed by (Plan + Seed + Version).
-  - [ ] Cross-version RNG compatibility and migration notes.
-  - [ ] Statistical sanity checks for RNG-dependent generators.
-  - [ ] RNG hot-path benchmarks (seed derivation + instantiation cost).
-  - [ ] Seed serialization/format stability guarantees.
-  - [x] Uniqueness enforcement (bounded retries with Resettable interface for per-parent reset).
-  - [x] Relation resolution (M:1 via rel_ref, 1:M via DrivenBy, M:N via composition).
+- [x] RNG and execution engine
+  - [x] PCG-based RNG with `Seed` construction
+  - [x] Hierarchical seed derivation (`Derive`, `DeriveIndex`) via FNV-1a + mix64
+  - [x] Per-row RNG instantiation from derived seeds
+  - [x] RNG implements `io.Reader` for entropy consumers (e.g., ULID)
+  - [x] Chunk-based parallelism (default 50k rows)
+  - [x] Deterministic row generation independent of worker scheduling
+  - [x] Concurrency stress tests (randomized workers/chunk sizes, digest comparison)
+  - [x] Golden determinism suite (Plan + Seed = identical output)
+  - [x] Uniqueness enforcement (bounded retries, Resettable interface)
+  - [x] Relational resolution (M:1 via rel_ref, 1:M via DrivenBy, M:N via composition)
 
-- [ ] Full primitive generator set
-  - [x] Scalar generators
-    - [x] uniform_int(min,max)
-    - [x] uniform_float(min,max)
-    - [x] normal_float(mu,sigma)
-    - [x] normal_int(mu,sigma,clamp)
-    - [x] zipf(s,vmax)
-    - [x] bool(p)
-    - [x] regex(pattern)
-      - [x] Enforce supported subset (anchor placement rules, no word boundaries) and document constraints in spec
-    - [x] time(start,end,tz)
-    - [x] uuid_v4()
-    - [x] ulid()
-    - [x] seq(start,step)
-    - [x] pick(values|file|url)
-    - [x] pick weighted mode (weights array for non-uniform selection)
-    - [x] const(value)
-  - [x] Composite generators
-    - [x] object(fields)
-    - [x] list(len,item)
-    - [x] list variable-length mode (min_len/max_len)
-    - [x] sample(values, n) — pick N unique items without replacement
-    - [x] one_of(gens,weights)
-    - [x] switch(key,cases)
-    - [x] template(tpl) — string interpolation with row field references
-  - [x] Relational generators
-    - [x] rel_ref(entity,field) — foreign key sampling with uniform/zipf distribution and optional unique mode
-    - [x] DrivenBy — parent-driven 1:M child row generation
-    - [x] M:N via composition (driven_by + rel_ref unique on junction entity)
+- [x] Full generator set
+  - [x] Scalar: `seq`, `const`, `bool`, `int`, `float`, `normal_int`, `normal_float`, `zipf`, `pick` (values|file|url, weighted), `uuid`, `ulid`, `time`, `regex`
+  - [x] Composite: `object`, `list` (fixed/variable length), `sample`, `one_of`, `switch`, `template`
+  - [x] Relational: `rel_ref` (uniform/zipf, unique mode), `DrivenBy`
 
-- [ ] Writers
-  - [x] JSONL writer (streaming).
-  - [x] CSV writer.
-  - [ ] Split modes: train/val/test.
+- [x] Writers
+  - [x] JSONL writer (streaming)
+  - [x] CSV writer
 
-- [ ] GraphQL + MCP parity (minimum viable)
-  - [ ] GraphQL API with generator listing and plan execution.
-  - [ ] MCP integration with plan execution and catalog access.
+- [x] Plan validation
+  - [x] Entity/field structure validation
+  - [x] Relational constraint validation (ordering, feasibility)
+  - [x] Reserved config key (`_` prefix) rejection
 
-- [ ] Determinism regression suite
-  - [ ] Golden outputs keyed by (Plan + Seed + Version).
-  - [ ] Cross-version compatibility checks and migration notes.
+## Phase 2 — CLI & YAML (Done)
 
-## Phase 2 - Advanced Outputs
+- [x] Plan file loading
+  - [x] YAML plan file support (gopkg.in/yaml.v3)
+  - [x] JSON plan file support (encoding/json)
+  - [x] Format detection by file extension (.yaml/.yml → YAML, .json → JSON)
+  - [x] Add YAML/JSON struct tags to Plan, EntitySpec, FieldSpec, DrivenBy
+- [x] CLI framework (Cobra)
+  - [x] Root command with top-level help, version flag, `apery version` subcommand
+  - [x] `apery generate -f plan.yaml -o jsonl` — run plan
+  - [x] `apery validate -f plan.yaml` — validate without generating
+  - [x] `apery list generators` — list available generators
+  - [x] `apery describe generator <name>` — show generator config schema/docs
+  - [x] Every command has short + long description with usage examples in --help
+  - [x] Shell completion subcommand (built-in via Cobra)
+- [x] Generate command flags
+  - [x] `-f` / `--file` — plan file path (required)
+  - [x] `-o` / `--output` — output format: jsonl (default), csv
+  - [x] `--output-dir` — output directory (default: current directory)
+  - [x] `--split-entities` — one file per entity (requires --output-dir)
+  - [x] `--dry-run` — validate plan without generating
+  - [x] `--seed` — override plan seed
+  - [x] `--workers` / `--chunk-size` — runtime overrides
+  - [x] `--verbose` — entity progress on stderr (silent by default)
+  - [x] `--debug` — detailed debug output on stderr (seeds, chunks, layout)
+- [x] Structured exit codes (0=success, 1=validation, 2=generation, 3=IO)
+- [x] Structured logging via slog (Info for --verbose, Debug for --debug)
+- [x] Generator metadata system (GeneratorInfo, MustRegisterInfo, all 20 generators documented)
+- [x] Writer refactoring (NewCSVWriterFromWriter, SplitWriter, omitEntity for split mode)
+- [x] Public API re-exports (LoadPlanFile, ListGenerators, WithWorkers, WithChunkSize, writer constructors)
 
-- [ ] Writers for AI workflows
-  - [ ] SFT/chat/tool-trace writers.
-  - [ ] DPO/RLHF preference pairs (chosen/rejected).
-  - [ ] Chat message arrays.
-  - [ ] Tool-call traces.
-  - [ ] RAG evaluation triples.
+## Phase 3 — Additional Writers
 
-- [ ] Dataset splits and storage
-  - [ ] Train/val/test split logic for all writers.
-  - [ ] Cloud storage connectors (S3/GCS/Azure).
+- [ ] Parquet writer
+- [ ] SQL writer (INSERT statements)
+- [ ] Train/val/test split modes
 
-## Phase 3 - Intelligent Compiler
+## Phase 4 — Catalogs
 
-- [ ] Natural language plan compiler
-  - [ ] Prompt to structured plan.
-  - [ ] Schema inference.
-  - [ ] Generator selection and configuration.
-  - [ ] Active learning loop for improvements.
-  - [ ] Plan diff UI (user-facing).
+- [ ] Bundled catalogs (names, companies, domains, cities, products, words)
+- [ ] User catalogs via local file
+- [ ] Remote catalogs via allowlisted URL
+- [ ] Weighted alias table conversion and caching
 
-## Phase 4 - Ecosystem
+## Phase 5 — Performance & Polish
 
-- [ ] SDKs
-  - [ ] Go SDK.
-  - [ ] TypeScript SDK.
-  - [ ] Python SDK.
+- [ ] Buffer reuse in writers
+- [ ] Preallocation of record maps
+- [ ] Statistical sanity checks for RNG-dependent generators
+- [ ] RNG hot-path benchmarks (seed derivation + instantiation cost)
+- [ ] Cross-version RNG compatibility and migration notes
+- [ ] Seed serialization/format stability guarantees
 
-- [ ] Integrations and marketplace
-  - [ ] LangChain integration.
-  - [ ] LlamaIndex integration.
-  - [ ] Catalog marketplace.
+## Future
 
-## Phase 5 - Governance
-
-- [ ] Dataset watermarking.
-- [ ] Lineage explorer UI.
-- [ ] Enterprise RBAC.
-
-## Cross-Cutting Requirements
-
-- [ ] Catalog subsystem
-  - [ ] Bundled catalogs (names, companies, domains, cities, products, words).
-  - [ ] User catalogs via local file.
-  - [ ] Remote catalogs via allowlisted URL.
-  - [ ] Virtual (LLM-generated) catalogs.
-  - [ ] Weighted alias table conversion and caching (ARC/LRU).
-
-- [ ] Performance and scaling
-  - [ ] Buffer reuse in writers.
-  - [ ] Preallocation of record maps.
-  - [x] Benchmarks generating millions of rows per schema.
+- [ ] Cloud storage connectors (S3/GCS)
+- [ ] Additional output formats as needed

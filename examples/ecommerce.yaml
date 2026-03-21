@@ -1,0 +1,74 @@
+seed: 99
+entities:
+  - name: User
+    count: 100
+    fields:
+      - name: id
+        gen: seq
+      - name: name
+        gen: pick
+        config:
+          values: [Alice, Bob, Carol, Dave, Eve, Frank, Grace, Hank]
+      - name: signup
+        gen: time
+        config:
+          start: "2023-01-01"
+          end: "2024-12-31"
+          format: "2006-01-02"
+
+  - name: Product
+    count: 50
+    fields:
+      - name: id
+        gen: seq
+      - name: sku
+        gen: regex
+        config:
+          pattern: "[A-Z]{2}-\\d{6}"
+      - name: price
+        gen: int
+        config:
+          min: 499
+          max: 99999
+
+  - name: Order
+    driven_by:
+      entity: User
+      field: id
+      as: user_id
+      min: 1
+      max: 5
+    fields:
+      - name: order_id
+        gen: seq
+      - name: product_id
+        gen: rel_ref
+        config:
+          entity: Product
+          field: id
+      - name: quantity
+        gen: int
+        config:
+          min: 1
+          max: 10
+
+  - name: Review
+    count: 500
+    fields:
+      - name: user_id
+        gen: rel_ref
+        config:
+          entity: User
+          field: id
+          distribution: zipf
+          s: 1.5
+      - name: product_id
+        gen: rel_ref
+        config:
+          entity: Product
+          field: id
+      - name: rating
+        gen: int
+        config:
+          min: 1
+          max: 5

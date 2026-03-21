@@ -1,227 +1,282 @@
-# Apery
+```
+                 __,__
+        .--.  .-"     "-.  .--.
+       / .. \/  .-. .-.  \/ .. \
+      | |  '|  /   Y   \  |'  | |
+      | \   \  \ 0 | 0 /  /   / |
+       \ '- ,\.-"""""""-./, -' /
+        ''-' /_   ^ ^   _\ '-''
+            |  \._   _./  |
+            \   \ '~' /   /
+             '._ '-=-' _.'
+                '-----'
+```
 
-A deterministic synthetic data generator built in Go.
+# apery
 
-## Overview
+**Deterministic synthetic data generation for agents and pipelines.**
 
-Apery generates synthetic data from declarative plans with guaranteed reproducibility. Given the same plan and seed, it produces identical output every time.
+Apery generates synthetic data from declarative YAML plans. Same plan, same seed, same output — every time. 1M rows in under 2 seconds.
 
-**Key Features:**
+Built for AI agents as a first-class citizen. Silent stdout by default, structured logging, machine-parseable output, clean exit codes.
 
-- Deterministic generation (Plan + Seed + Version = Identical Output)
-- Platform-independent output (explicit `int64`/`float64` types)
-- Hierarchical RNG seeding for parallel execution
-- Chunked parallel execution with configurable worker count and chunk size
-- Extensible generator registry
-- Multiple output formats (JSONL, CSV)
-
-See [spec.md](docs/spec.md) for full design specification.
-
-## Quick Start
+## Install
 
 ```bash
-# Build the project
-make build
+git clone https://github.com/compuficial/apery.git
+cd apery
+make install   # builds and installs to ~/.local/bin
+```
 
-# Run the generator
-make run
+Requires Go 1.24+.
 
-# Format code
-make fmt
+## 30-Second Demo
 
-# Run benchmarks
-make bench
+```yaml
+# plan.yaml
+seed: 42
+entities:
+  - name: User
+    count: 1000
+    fields:
+      - name: id
+        gen: seq
+      - name: email
+        gen: regex
+        config:
+          pattern: "[a-z]{5,10}@(gmail|yahoo|outlook)\\.com"
+      - name: department
+        gen: pick
+        config:
+          values: [engineering, sales, marketing, support]
+          weights: [40, 30, 20, 10]
+```
+
+```bash
+$ apery generate -f plan.yaml | head -3
+{"_entity":"User","id":1,"email":"kczvbmih@outlook.com","department":"engineering"}
+{"_entity":"User","id":2,"email":"yzdevl@yahoo.com","department":"engineering"}
+{"_entity":"User","id":3,"email":"eoikwpvxu@gmail.com","department":"sales"}
+```
+
+## Why Apery
+
+| | |
+|---|---|
+| **Deterministic** | `Plan + Seed = Identical Output`. Always. Across parallel workers, platforms, runs. |
+| **Fast** | 1M rows in ~1.6s with chunked parallel execution across all cores. |
+| **Composable** | 20 generators that nest and combine. Objects, lists, templates, conditional dispatch. |
+| **Relational** | Foreign keys, 1:M parent-child, M:N junction tables. Zipf distributions for realistic skew. |
+| **Agent-first** | YAML/JSON plans, stdout piping, structured slog output, exit codes. No GUI, no server. |
+| **Zero config** | Single binary. No database, no runtime dependencies. `make install` and go. |
+
+## Generators
+
+Run `apery list generators` to see all available generators, or `apery describe generator <name>` for full config docs.
+
+### Scalar
+
+| Generator | Description | Example Config |
+|-----------|-------------|----------------|
+| `seq` | Sequential integers | `start: 1, step: 1` |
+| `int` | Uniform random integer | `min: 0, max: 100` |
+| `float` | Uniform random float | `min: 0.0, max: 1.0` |
+| `bool` | Weighted boolean | `probability: 0.8` |
+| `pick` | Random from list/file/URL | `values: [a, b, c], weights: [5, 3, 2]` |
+| `const` | Fixed value | `value: active` |
+| `regex` | String from pattern | `pattern: "[A-Z]{2}-\\d{6}"` |
+| `time` | Timestamp in range | `start: "2024-01-01", end: "2024-12-31"` |
+| `uuid` | UUID v4 | — |
+| `ulid` | ULID | — |
+| `normal_int` | Gaussian integer | `mu: 50, sigma: 10` |
+| `normal_float` | Gaussian float | `mu: 0.0, sigma: 1.0` |
+| `zipf` | Zipf distribution | `s: 1.1, imax: 100` |
+
+### Composite
+
+| Generator | Description |
+|-----------|-------------|
+| `object` | Nested object with sub-generators per field |
+| `list` | Array of N items from one generator |
+| `sample` | N unique items without replacement |
+| `one_of` | Weighted random dispatch to sub-generators |
+| `template` | String interpolation: `"{first} {last}"` |
+| `switch` | Conditional dispatch based on another field |
+
+### Relational
+
+| Generator | Description |
+|-----------|-------------|
+| `rel_ref` | Foreign key from a previously generated entity (uniform or zipf, optional `unique: true`) |
+| `driven_by` | 1:M parent-child — generate Min to Max children per parent row |
+
+## Relational Example
+
+```yaml
+seed: 99
+entities:
+  - name: User
+    count: 100
+    fields:
+      - name: id
+        gen: seq
+      - name: name
+        gen: pick
+        config:
+          values: [Alice, Bob, Carol, Dave]
+
+  - name: Product
+    count: 50
+    fields:
+      - name: id
+        gen: seq
+      - name: sku
+        gen: regex
+        config:
+          pattern: "[A-Z]{2}-\\d{6}"
+
+  - name: Order                    # 1:M — each User gets 1-5 Orders
+    driven_by:
+      entity: User
+      field: id
+      as: user_id
+      min: 1
+      max: 5
+    fields:
+      - name: order_id
+        gen: seq
+      - name: product_id
+        gen: rel_ref
+        config:
+          entity: Product
+          field: id
+      - name: quantity
+        gen: int
+        config:
+          min: 1
+          max: 10
+
+  - name: Review                   # M:1 with zipf skew
+    count: 500
+    fields:
+      - name: user_id
+        gen: rel_ref
+        config:
+          entity: User
+          field: id
+          distribution: zipf
+          s: 1.5
+      - name: product_id
+        gen: rel_ref
+        config:
+          entity: Product
+          field: id
+      - name: rating
+        gen: int
+        config:
+          min: 1
+          max: 5
+```
+
+```bash
+$ apery generate -f ecommerce.yaml --output-dir ./out --split-entities
+$ ls out/
+Order.jsonl  Product.jsonl  Review.jsonl  User.jsonl
+
+$ head -1 out/Order.jsonl | jq .
+{
+  "user_id": 1,
+  "order_id": 1,
+  "product_id": 34,
+  "quantity": 7
+}
+```
+
+## CLI Reference
+
+```
+apery generate -f plan.yaml              # JSONL to stdout
+apery generate -f plan.yaml -o csv       # CSV to stdout
+apery generate -f plan.yaml --output-dir ./out
+apery generate -f plan.yaml --output-dir ./out --split-entities
+apery generate -f plan.yaml --dry-run    # validate only
+apery generate -f plan.yaml --seed 123   # override seed
+apery generate -f plan.yaml --verbose    # entity progress to stderr
+apery generate -f plan.yaml --debug      # full debug output to stderr
+
+apery validate -f plan.yaml              # validate a plan file
+apery list generators                    # list all generators
+apery describe generator <name>          # show config schema + example
+apery version                            # print version
+apery help <command>                     # help for any command
+```
+
+**Exit codes:** `0` success, `1` validation error, `2` generation error, `3` I/O error.
+
+## Performance
+
+```bash
+$ cat bench.yaml
+seed: 1
+entities:
+  - name: Row
+    count: 1000000
+    fields:
+      - name: id
+        gen: seq
+      - name: value
+        gen: int
+        config: { min: 0, max: 1000000 }
+      - name: label
+        gen: pick
+        config: { values: [a, b, c, d, e] }
+
+$ time apery generate -f bench.yaml --workers 16 > /dev/null
+real    0m1.6s
+```
+
+~600,000 rows/second on a modern desktop. Scales linearly with cores.
+
+## Determinism
+
+```bash
+$ apery generate -f plan.yaml --seed 42 | md5sum
+fc8756b572010e94b46afc81ecbe6a02  -
+$ apery generate -f plan.yaml --seed 42 | md5sum
+fc8756b572010e94b46afc81ecbe6a02  -
+```
+
+Hierarchical seed derivation ensures identical output regardless of worker count or chunk size. See the [spec](docs/spec-v2.md) for the full seed derivation model.
+
+## Go Library
+
+```go
+import "apery"
+
+p, _ := apery.LoadPlanFile("plan.yaml")
+
+w, _ := apery.NewJSONLWriter("output.jsonl")
+apery.Run(ctx, p, w,
+    apery.WithWorkers(16),
+    apery.WithChunkSize(100000),
+)
 ```
 
 ## Architecture
 
 ```
-internal/
-├── plan/       - Plan data structures
-├── registry/   - Generator registry and primitives
-├── rng/        - Deterministic RNG with hierarchical seeding
-├── runtime/    - Execution orchestrator
-└── writer/     - Output writers (JSONL, CSV)
+Plan (YAML/JSON) --> Validation --> Registry (20 Generators) --> Runtime (Parallel Executor) --> Writer (JSONL/CSV)
+                                         |                            |
+                                    GeneratorInfo               slog structured
+                                    (self-describing)            logging
 ```
 
-## Generators
+## Documentation
 
-### Scalar Generators
+- **[Usage Guide](docs/usage.md)** — Full CLI walkthrough with example plans
+- **[Specification](docs/spec-v2.md)** — Architecture, generator reference, execution model
+- **[Implementation Checklist](docs/plan.md)** — What's done and what's next
 
-- `seq` - Sequential integers with configurable start/step
-- `pick` - Random selection from a list (inline, file, or URL), with optional weights
-- `const` - Fixed constant value (string, int, float, bool, or null)
-- `bool` - Boolean with configurable probability
-- `int` - Random integers within a range
-- `float` - Random floats within a range
-- `normal_int` - Normally distributed integers with optional clamping
-- `normal_float` - Normally distributed floats
-- `zipf` - Zipf-distributed integers
-- `regex` - Strings matching a limited regex subset
-- `uuid` - UUID v4 strings
-- `ulid` - ULID strings (sortable unique identifiers)
-- `time` - Timestamps within a configurable range
+## License
 
-### Composite Generators
-
-- `object` - Nested objects with named sub-fields, each with its own generator
-- `list` - Arrays of items from a single generator (fixed `len` or variable `min_len`/`max_len`)
-- `sample` - Select N unique items without replacement (fixed `n` or variable `min_n`/`max_n`)
-- `one_of` - Randomly dispatch to one of several generators, with optional weights
-- `template` - String interpolation with `{field_name}` placeholders from the current row
-- `switch` - Dispatch to sub-generator based on another field's value, with optional default
-
-### Relational Generators
-
-- `rel_ref` - Foreign key sampling from a previously generated entity's column (uniform or zipf distribution, optional `unique: true`)
-
-### Relational Concepts
-
-- **`DrivenBy`** - 1:M parent-driven child row generation. Sets Min/Max children per parent instead of a fixed Count.
-- **M:N relationships** - Composed via a junction entity using `DrivenBy` (1:M from left) + `rel_ref` with `unique: true` (M:1 to right)
-
-## Example
-
-```go
-p := apery.Plan{
-    Seed: 4,
-    Entities: []apery.EntitySpec{
-        {
-            Name:  "User",
-            Count: 20_000,
-            Fields: []apery.FieldSpec{
-                {Name: "id", Gen: "seq"},
-                {Name: "employee_number", Gen: "seq"},
-                {Name: "is_active", Gen: "bool", Config: map[string]any{"probability": 0.7}},
-                {Name: "department", Gen: "pick", Config: map[string]any{
-                    "values":  []any{"engineering", "sales", "marketing", "support"},
-                    "weights": []any{40, 30, 20, 10},
-                }},
-                {Name: "department_code", Gen: "int", Config: map[string]any{"max": 100}},
-                {Name: "idn", Gen: "ulid"},
-                {Name: "timestamp", Gen: "time", Config: map[string]any{"format": "2006-01-02"}},
-                {Name: "phone", Gen: "regex", Config: map[string]any{"pattern": `\(\d{3}\) \d{3}-\d{4}`}},
-                {Name: "sku", Gen: "regex", Config: map[string]any{"pattern": `[A-Z]{2}-\d{6}`}},
-                {Name: "license_plate", Gen: "regex", Config: map[string]any{"pattern": `[A-Z]{3}-\d{4}`}},
-                {Name: "address", Gen: "object", Config: map[string]any{
-                    "fields": map[string]any{
-                        "city":  map[string]any{"gen": "pick", "config": map[string]any{"values": []any{"New York", "Los Angeles", "Chicago", "Houston", "Phoenix"}}},
-                        "zip":   map[string]any{"gen": "int", "config": map[string]any{"min": 10000, "max": 99999}},
-                        "suite": map[string]any{"gen": "regex", "config": map[string]any{"pattern": `[A-Z]\d{3}`}},
-                        "geo": map[string]any{"gen": "object", "config": map[string]any{
-                            "fields": map[string]any{
-                                "lat": map[string]any{"gen": "float", "config": map[string]any{"min": -90.0, "max": 90.0}},
-                                "lng": map[string]any{"gen": "float", "config": map[string]any{"min": -180.0, "max": 180.0}},
-                            },
-                        }},
-                    },
-                }},
-                {Name: "status", Gen: "const", Config: map[string]any{"value": "active"}},
-                {Name: "tags", Gen: "list", Config: map[string]any{
-                    "min_len": 1,
-                    "max_len": 4,
-                    "item": map[string]any{"gen": "pick", "config": map[string]any{"values": []any{"admin", "beta", "premium", "internal", "vip"}}},
-                }},
-                {Name: "skills", Gen: "sample", Config: map[string]any{
-                    "values": []any{"Go", "Python", "Rust", "TypeScript", "Java", "C++", "Ruby", "Kotlin"},
-                    "min_n":  2,
-                    "max_n":  5,
-                }},
-                {Name: "contact_method", Gen: "one_of", Config: map[string]any{
-                    "generators": []any{
-                        map[string]any{"gen": "regex", "config": map[string]any{"pattern": `[a-z]{5,10}@(gmail|yahoo|outlook)\.com`}},
-                        map[string]any{"gen": "regex", "config": map[string]any{"pattern": `\+1-\d{3}-\d{3}-\d{4}`}},
-                    },
-                    "weights": []any{7.0, 3.0},
-                }},
-                {Name: "greeting", Gen: "template", Config: map[string]any{
-                    "tpl": "Welcome, employee #{id} from {department}!",
-                }},
-                {Name: "access_level", Gen: "switch", Config: map[string]any{
-                    "key": "department",
-                    "cases": map[string]any{
-                        "engineering": map[string]any{"gen": "const", "config": map[string]any{"value": "full"}},
-                        "sales":       map[string]any{"gen": "const", "config": map[string]any{"value": "read-only"}},
-                        "marketing":   map[string]any{"gen": "const", "config": map[string]any{"value": "read-only"}},
-                        "support":     map[string]any{"gen": "const", "config": map[string]any{"value": "limited"}},
-                    },
-                    "default": map[string]any{"gen": "const", "config": map[string]any{"value": "standard"}},
-                }},
-            },
-        },
-        {
-            Name:  "Product",
-            Count: 500,
-            Fields: []apery.FieldSpec{
-                {Name: "id", Gen: "seq"},
-                {Name: "name", Gen: "regex", Config: map[string]any{"pattern": `[A-Z][a-z]{3,8} [A-Z][a-z]{2,6}`}},
-                {Name: "price", Gen: "int", Config: map[string]any{"min": 100, "max": 99999}},
-            },
-        },
-        {
-            // 1:M — each User gets 1-5 Orders (driven_by)
-            Name: "Order",
-            DrivenBy: &apery.DrivenBy{
-                Entity: "User", Field: "id", As: "user_id", Min: 1, Max: 5,
-            },
-            Fields: []apery.FieldSpec{
-                {Name: "order_id", Gen: "seq"},
-                {Name: "product_id", Gen: "rel_ref", Config: map[string]any{
-                    "entity": "Product", "field": "id",
-                }},
-                {Name: "quantity", Gen: "int", Config: map[string]any{"min": 1, "max": 10}},
-            },
-        },
-        {
-            // M:1 — Reviews reference Users (zipf) and Products (uniform)
-            Name:  "Review",
-            Count: 50_000,
-            Fields: []apery.FieldSpec{
-                {Name: "user_id", Gen: "rel_ref", Config: map[string]any{
-                    "entity": "User", "field": "id", "distribution": "zipf", "s": 1.5,
-                }},
-                {Name: "product_id", Gen: "rel_ref", Config: map[string]any{
-                    "entity": "Product", "field": "id",
-                }},
-                {Name: "rating", Gen: "int", Config: map[string]any{"min": 1, "max": 5}},
-            },
-        },
-    },
-}
-```
-
-You can also run plans via the library API:
-
-```go
-w, err := apery.NewJSONLWriter("output.jsonl")
-if err != nil {
-    return err
-}
-if err := apery.Run(context.Background(), &p, w,
-    runtime.WithWorkers(16),
-    runtime.WithChunkSize(10000),
-); err != nil {
-    return err
-}
-```
-
-## Determinism Testing
-
-Apery guarantees **Plan + Seed = Identical Output**. Golden tests catch accidental output drift, and stress tests verify determinism across different parallelism configurations.
-
-```bash
-# Run golden tests (compare against stored reference output)
-go test ./internal/runtime -run TestGolden -v
-
-# Regenerate golden files after intentional output changes
-go test ./internal/runtime -run TestGolden -update -v
-
-# Run concurrency stress tests (randomized worker/chunk configs)
-go test ./internal/runtime -run TestStress -v
-```
-
-## Benchmarking
-
-```bash
-make bench
-```
+MIT

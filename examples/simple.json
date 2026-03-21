@@ -1,0 +1,15 @@
+{
+  "seed": 1,
+  "entities": [
+    {
+      "name": "Event",
+      "count": 10,
+      "fields": [
+        {"name": "id", "gen": "uuid"},
+        {"name": "timestamp", "gen": "time"},
+        {"name": "severity", "gen": "pick", "config": {"values": ["info", "warn", "error"], "weights": [70, 20, 10]}},
+        {"name": "code", "gen": "int", "config": {"min": 100, "max": 599}}
+      ]
+    }
+  ]
+}
