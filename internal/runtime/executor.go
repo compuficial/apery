@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"sync"
+	"time"
 
 	"apery/internal/plan"
 	"apery/internal/registry"
@@ -28,9 +30,16 @@ const (
 	cfgUnique     = "unique"
 )
 
+// discardHandler is a slog.Handler that discards all log records.
+var discardHandler = slog.NewTextHandler(nopWriter{}, &slog.HandlerOptions{Level: slog.Level(99)})
+
+type nopWriter struct{}
+
+func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
+
 type Executor struct {
 	writer    writer.Writer
-	logger    Logger
+	logger    *slog.Logger
 	chunkSize int64
 	workers   int
 }
@@ -43,10 +52,6 @@ type fieldRuntime struct {
 	seed    rng.Seed
 }
 
-type Logger interface {
-	Printf(format string, args ...any)
-}
-
 type Option func(*Executor)
 
 const (
@@ -54,8 +59,8 @@ const (
 	maxWorkers       = 64
 )
 
-// WithLogger configures a logger for execution diagnostics.
-func WithLogger(logger Logger) Option {
+// WithLogger configures structured logging for execution.
+func WithLogger(logger *slog.Logger) Option {
 	return func(e *Executor) {
 		e.logger = logger
 	}
@@ -77,7 +82,11 @@ func WithWorkers(workers int) Option {
 
 // New constructs an Executor with the provided writer and options.
 func New(w writer.Writer, opts ...Option) *Executor {
-	executor := &Executor{writer: w, chunkSize: defaultChunkSize}
+	executor := &Executor{
+		writer:    w,
+		chunkSize: defaultChunkSize,
+		logger:    slog.New(discardHandler),
+	}
 	for _, opt := range opts {
 		opt(executor)
 	}
@@ -99,14 +108,23 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 	store := newMapEntityStore()
 	required := requiredColumns(p.Entities)
 
+	runStart := time.Now()
+	e.logger.Info("run.start", "entities", len(p.Entities), "seed", p.Seed)
+
+	var totalRows int64
 	for idx := range p.Entities {
 		entity := &p.Entities[idx]
 		var records []*writer.OrderedMap
 		var genErr error
 
+		entityStart := time.Now()
+		rowCount := entity.Count
 		if entity.DrivenBy != nil {
+			e.logger.Info("entity.start", "entity", entity.Name, "type", "driven_by", "parent", entity.DrivenBy.Entity)
 			records, genErr = e.runDrivenByEntity(ctx, p.Seed, idx, entity, store)
+			rowCount = int64(len(records))
 		} else {
+			e.logger.Info("entity.start", "entity", entity.Name, "rows", entity.Count)
 			records, genErr = e.runEntity(ctx, p.Seed, idx, entity, store)
 		}
 		if genErr != nil {
@@ -119,6 +137,9 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 			}
 		}
 
+		totalRows += rowCount
+		e.logger.Info("entity.complete", "entity", entity.Name, "rows", rowCount, "duration", time.Since(entityStart).Round(time.Millisecond))
+
 		// Extract and store required columns.
 		if fields, ok := required[entity.Name]; ok {
 			for _, fieldName := range fields {
@@ -127,6 +148,7 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 		}
 	}
 
+	e.logger.Info("run.complete", "entities", len(p.Entities), "rows", totalRows, "duration", time.Since(runStart).Round(time.Millisecond))
 	return nil
 }
 
@@ -153,7 +175,7 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, entityIndex int, e
 		workers = 1
 	}
 
-	return runChunksParallel(ctx, chunks, workers, func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
+	return e.runChunksParallel(ctx, chunks, workers, func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
 		return e.runChunk(ctx, fields, ch, store)
 	})
 }
@@ -197,7 +219,7 @@ func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed rng.Seed) ([]f
 			factory: factory,
 			seed:    fieldSeed,
 		})
-		e.logf("%s -> %s (seed: %d)", field.Name, field.Gen, fieldSeed)
+		e.logger.Debug("field.init", "entity", entity.Name, "field", field.Name, "gen", field.Gen, "seed", fieldSeed)
 	}
 
 	return fields, nil
@@ -226,7 +248,7 @@ type chunkRunner func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, erro
 // runChunksParallel distributes chunks across workers, collects results in order,
 // and returns the flattened records. This is the shared fan-out pattern used by
 // both runEntity and runDrivenByEntity.
-func runChunksParallel(ctx context.Context, chunks []chunk, workers int, runner chunkRunner) ([]*writer.OrderedMap, error) {
+func (e *Executor) runChunksParallel(ctx context.Context, chunks []chunk, workers int, runner chunkRunner) ([]*writer.OrderedMap, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -260,6 +282,7 @@ func runChunksParallel(ctx context.Context, chunks []chunk, workers int, runner 
 	}
 
 	for _, ch := range chunks {
+		e.logger.Debug("chunk.dispatch", "chunk", ch.Index, "start", ch.Start, "end", ch.End)
 		chunkCh <- ch
 	}
 	close(chunkCh)
@@ -444,14 +467,6 @@ func (e *Executor) closeWithError(err *error) {
 		return
 	}
 	*err = closeErr
-}
-
-// logf writes formatted logs if a logger is configured.
-func (e *Executor) logf(format string, args ...any) {
-	if e.logger == nil {
-		return
-	}
-	e.logger.Printf(format, args...)
 }
 
 func (e *Executor) workerCount() int {

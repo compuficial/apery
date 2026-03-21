@@ -7,6 +7,7 @@ import (
 	"apery/internal/writer"
 	"context"
 	"io"
+	"log/slog"
 )
 
 type (
@@ -18,7 +19,6 @@ type (
 	Writer     = writer.Writer
 	OrderedMap = writer.OrderedMap
 
-	Logger = runtime.Logger
 	Option = runtime.Option
 
 	GeneratorInfo = registry.GeneratorInfo
@@ -33,7 +33,7 @@ func ListGenerators() []GeneratorInfo {
 	return registry.ListGenerators()
 }
 
-func WithLogger(logger Logger) Option {
+func WithLogger(logger *slog.Logger) Option {
 	return runtime.WithLogger(logger)
 }
 

@@ -118,7 +118,9 @@ func (e *Executor) runDrivenByEntity(ctx context.Context, seed int64, entityInde
 	needsAlignment := hasUniqueRelRef(entity)
 	chunks := makeDrivenByChunks(layout, e.chunkSize, needsAlignment)
 
-	return runChunksParallel(ctx, chunks, e.workerCount(), func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
+	e.logger.Debug("driven_by.layout", "entity", entity.Name, "parent", db.Entity, "total_children", layout.total)
+
+	return e.runChunksParallel(ctx, chunks, e.workerCount(), func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
 		return e.runDrivenByChunk(ctx, entity, fields, ch, store, layout)
 	})
 }

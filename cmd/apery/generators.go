@@ -11,17 +11,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var generatorsCmd = &cobra.Command{
-	Use:   "generators",
-	Short: "List and describe available generators",
-	Long:  `Discover available generators, their configuration, and usage examples.`,
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List resources",
+	Long:  `List available resources such as generators.`,
 }
 
-var generatorsListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all available generators",
-	Long:  `Print a table of all registered generators with their names and descriptions.`,
-	Example: `  apery generators list`,
+var listGeneratorsCmd = &cobra.Command{
+	Use:     "generators",
+	Short:   "List all available generators",
+	Long:    `Print a table of all registered generators with their names and descriptions.`,
+	Example: `  apery list generators`,
 	Run: func(cmd *cobra.Command, args []string) {
 		infos := registry.ListGenerators()
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -33,20 +33,26 @@ var generatorsListCmd = &cobra.Command{
 	},
 }
 
-var generatorsDescribeCmd = &cobra.Command{
-	Use:   "describe <generator>",
+var describeCmd = &cobra.Command{
+	Use:   "describe",
+	Short: "Describe a resource",
+	Long:  `Show detailed information about a resource.`,
+}
+
+var describeGeneratorCmd = &cobra.Command{
+	Use:   "generator <name>",
 	Short: "Show detailed info for a generator",
 	Long: `Print the full configuration schema, defaults, and a YAML usage example
 for the specified generator.`,
-	Example: `  apery generators describe int
-  apery generators describe rel_ref`,
+	Example: `  apery describe generator int
+  apery describe generator rel_ref`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
 		info, ok := registry.GetInfo(name)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "Error: unknown generator %q\n", name)
-			fmt.Fprintln(os.Stderr, "Run 'apery generators list' to see available generators.")
+			fmt.Fprintln(os.Stderr, "Run 'apery list generators' to see available generators.")
 			os.Exit(exitValidation)
 		}
 
@@ -83,7 +89,8 @@ for the specified generator.`,
 }
 
 func init() {
-	generatorsCmd.AddCommand(generatorsListCmd)
-	generatorsCmd.AddCommand(generatorsDescribeCmd)
-	rootCmd.AddCommand(generatorsCmd)
+	listCmd.AddCommand(listGeneratorsCmd)
+	describeCmd.AddCommand(describeGeneratorCmd)
+	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(describeCmd)
 }

@@ -23,8 +23,20 @@ var rootCmd = &cobra.Command{
 Given the same plan and seed, it produces identical output every time.
 
 Use 'apery generate' to produce data, 'apery validate' to check a plan,
-or 'apery generators' to discover available generators.`,
+or 'apery list generators' to discover available generators.`,
 	Version: Version,
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the version",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("apery version", Version)
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(versionCmd)
 }
 
 func exitWithError(msg string, code int) {

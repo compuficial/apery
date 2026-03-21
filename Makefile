@@ -1,10 +1,15 @@
-.PHONY: build run clean fmt vet test bench
+.PHONY: build install run clean fmt vet test bench
 
 VERSION ?= dev
 
 # Build the binary
 build:
 	go build -ldflags "-X main.Version=$(VERSION)" -o bin/apery ./cmd/apery
+
+# Install to ~/.local/bin
+install: build
+	mkdir -p $(HOME)/.local/bin
+	cp bin/apery $(HOME)/.local/bin/apery
 
 # Run the program
 run:

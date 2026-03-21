@@ -3,11 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"time"
 
 	"apery/internal/plan"
 	"apery/internal/runtime"
@@ -51,10 +50,11 @@ func init() {
 	f.String("output-dir", "", "Write output to directory instead of stdout")
 	f.Bool("split-entities", false, "Write one file per entity (requires --output-dir)")
 	f.Bool("dry-run", false, "Validate plan without generating")
-	f.Int64("seed", 0, "Override plan seed (0 = use plan's seed)")
-	f.Int("workers", 0, "Number of parallel workers (0 = auto)")
-	f.Int64("chunk-size", 0, "Rows per chunk (0 = default 50000)")
-	f.Bool("verbose", false, "Show progress on stderr")
+	f.Int64("seed", 0, "Override the seed defined in the plan file")
+	f.Int("workers", 0, "Number of parallel workers, auto-detected if not set")
+	f.Int64("chunk-size", 0, "Rows per chunk, defaults to 50000 if not set")
+	f.Bool("verbose", false, "Show entity progress on stderr")
+	f.Bool("debug", false, "Show detailed debug output on stderr")
 
 	generateCmd.MarkFlagRequired("file")
 	rootCmd.AddCommand(generateCmd)
@@ -70,6 +70,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	workers, _ := cmd.Flags().GetInt("workers")
 	chunkSize, _ := cmd.Flags().GetInt64("chunk-size")
 	verbose, _ := cmd.Flags().GetBool("verbose")
+	debug, _ := cmd.Flags().GetBool("debug")
 
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
@@ -108,21 +109,21 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if chunkSize > 0 {
 		opts = append(opts, runtime.WithChunkSize(chunkSize))
 	}
-	if verbose {
-		opts = append(opts, runtime.WithLogger(log.New(os.Stderr, "", 0)))
+	if verbose || debug {
+		level := slog.LevelInfo
+		if debug {
+			level = slog.LevelDebug
+		}
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+		opts = append(opts, runtime.WithLogger(logger))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	start := time.Now()
 	executor := runtime.New(w, opts...)
 	if err := executor.Run(ctx, p); err != nil {
 		exitWithError(err.Error(), exitGeneration)
-	}
-
-	if verbose {
-		fmt.Fprintf(os.Stderr, "Done in %s\n", time.Since(start).Round(time.Millisecond))
 	}
 
 	return nil

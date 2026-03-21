@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -113,13 +114,14 @@ func (w *stubWriter) Close() error {
 	return w.closeErr
 }
 
-type stubLogger struct {
+type countHandler struct {
 	calls int
 }
 
-func (l *stubLogger) Printf(format string, args ...any) {
-	l.calls++
-}
+func (h *countHandler) Enabled(_ context.Context, _ slog.Level) bool  { return true }
+func (h *countHandler) Handle(_ context.Context, _ slog.Record) error { h.calls++; return nil }
+func (h *countHandler) WithAttrs(_ []slog.Attr) slog.Handler          { return h }
+func (h *countHandler) WithGroup(_ string) slog.Handler               { return h }
 
 func TestExecutorRowSeedDeterminism(t *testing.T) {
 	cfg := map[string]any{"min": 1, "max": 10}
@@ -226,7 +228,8 @@ func TestExecutorErrorJoinOnClose(t *testing.T) {
 }
 
 func TestExecutorLogger(t *testing.T) {
-	logger := &stubLogger{}
+	h := &countHandler{}
+	logger := slog.New(h)
 	w := &stubWriter{}
 	executor := New(w, WithLogger(logger))
 	p := &plan.Plan{
@@ -245,7 +248,7 @@ func TestExecutorLogger(t *testing.T) {
 	if err := executor.Run(context.Background(), p); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if logger.calls == 0 {
+	if h.calls == 0 {
 		t.Fatal("expected logger to be called")
 	}
 }
