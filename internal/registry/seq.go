@@ -64,4 +64,16 @@ func init() {
 		}
 		return &SeqGenerator{current: start - step, start: start, step: step}, nil
 	})
+	MustRegisterInfo("seq", GeneratorInfo{
+		Description: "Sequential integers with configurable start and step",
+		ConfigKeys: []ConfigKey{
+			{Name: "start", Type: "int", Desc: "Starting value (default 1)"},
+			{Name: "step", Type: "int", Desc: "Increment per row (default 1)"},
+		},
+		Example: `- name: id
+  gen: seq
+  config:
+    start: 1
+    step: 1`,
+	})
 }

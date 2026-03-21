@@ -48,3 +48,62 @@ func TestMustRegisterPanics(t *testing.T) {
 	}()
 	MustRegister("", func(map[string]any) (Generator, error) { return nil, nil })
 }
+
+func TestMustRegisterInfo_PanicsForUnknownGenerator(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for unregistered generator name")
+		}
+	}()
+	MustRegisterInfo("nonexistent_generator_xyz", GeneratorInfo{
+		Name:        "nonexistent_generator_xyz",
+		Description: "test",
+	})
+}
+
+func TestListGenerators_Sorted(t *testing.T) {
+	infos := ListGenerators()
+	if len(infos) == 0 {
+		t.Fatal("ListGenerators returned empty list")
+	}
+	for i := 1; i < len(infos); i++ {
+		if infos[i].Name < infos[i-1].Name {
+			t.Errorf("not sorted: %q before %q", infos[i-1].Name, infos[i].Name)
+		}
+	}
+}
+
+func TestGetInfo(t *testing.T) {
+	info, ok := GetInfo("seq")
+	if !ok {
+		t.Fatal("GetInfo(seq) returned false")
+	}
+	if info.Name != "seq" {
+		t.Errorf("info.Name = %q, want seq", info.Name)
+	}
+	if info.Description == "" {
+		t.Error("info.Description is empty")
+	}
+}
+
+func TestGetInfo_NotFound(t *testing.T) {
+	_, ok := GetInfo("does_not_exist")
+	if ok {
+		t.Fatal("GetInfo returned true for nonexistent generator")
+	}
+}
+
+func TestAllGeneratorsHaveInfo(t *testing.T) {
+	infos := ListGenerators()
+	if len(infos) == 0 {
+		t.Fatal("ListGenerators returned empty list")
+	}
+	for _, info := range infos {
+		if info.Description == "" {
+			t.Errorf("generator %q has empty description", info.Name)
+		}
+		if info.Example == "" {
+			t.Errorf("generator %q has empty example", info.Name)
+		}
+	}
+}

@@ -11,7 +11,25 @@ package registry
 import (
 	"apery/internal/rng"
 	"fmt"
+	"sort"
 )
+
+// GeneratorInfo describes a generator for CLI help and agent discovery.
+type GeneratorInfo struct {
+	Name        string
+	Description string
+	ConfigKeys  []ConfigKey
+	Example     string
+}
+
+// ConfigKey documents a single configuration parameter.
+type ConfigKey struct {
+	Name     string
+	Type     string
+	Required bool
+	Default  string
+	Desc     string
+}
 
 // Generator creates values
 type Generator interface {
@@ -23,6 +41,8 @@ type Factory func(config map[string]any) (Generator, error)
 
 // Registry holds all generators
 var generators = make(map[string]Factory)
+
+var generatorInfos = make(map[string]GeneratorInfo)
 
 // Register adds a generator
 func Register(name string, factory Factory) error {
@@ -53,6 +73,33 @@ func Get(name string, config map[string]any) (Generator, error) {
 		return nil, fmt.Errorf("registry: generator %q not found", name)
 	}
 	return factory(config)
+}
+
+// MustRegisterInfo adds metadata for a previously registered generator and panics if the generator is unknown.
+func MustRegisterInfo(name string, info GeneratorInfo) {
+	if _, ok := generators[name]; !ok {
+		panic(fmt.Sprintf("registry: cannot register info for unknown generator %q", name))
+	}
+	info.Name = name
+	generatorInfos[name] = info
+}
+
+// ListGenerators returns all generators with registered metadata, sorted by name.
+func ListGenerators() []GeneratorInfo {
+	infos := make([]GeneratorInfo, 0, len(generatorInfos))
+	for _, info := range generatorInfos {
+		infos = append(infos, info)
+	}
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].Name < infos[j].Name
+	})
+	return infos
+}
+
+// GetInfo returns the metadata for a named generator.
+func GetInfo(name string) (GeneratorInfo, bool) {
+	info, ok := generatorInfos[name]
+	return info, ok
 }
 
 // FactoryFor retrieves the factory function by generator name.
