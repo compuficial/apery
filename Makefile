@@ -1,8 +1,10 @@
 .PHONY: build run clean fmt vet test bench
 
+VERSION ?= dev
+
 # Build the binary
 build:
-	go build -o bin/apery ./cmd/apery
+	go build -ldflags "-X main.Version=$(VERSION)" -o bin/apery ./cmd/apery
 
 # Run the program
 run:
