@@ -29,4 +29,9 @@ func init() {
 	MustRegister("ulid", func(config map[string]any) (Generator, error) {
 		return &ULIDGenerator{}, nil
 	})
+	MustRegisterInfo("ulid", GeneratorInfo{
+		Description: "ULID (Universally Unique Lexicographically Sortable Identifier)",
+		Example: `- name: id
+  gen: ulid`,
+	})
 }

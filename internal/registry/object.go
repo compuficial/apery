@@ -91,4 +91,23 @@ func init() {
 
 		return &ObjectGenerator{fields: fields}, nil
 	})
+	MustRegisterInfo("object", GeneratorInfo{
+		Description: "Nested object with named sub-fields",
+		ConfigKeys: []ConfigKey{
+			{Name: "fields", Type: "map[string]any", Required: true, Desc: "Map of field names to sub-generator specs ({gen, config})"},
+		},
+		Example: `- name: address
+  gen: object
+  config:
+    fields:
+      city:
+        gen: pick
+        config:
+          values: [NYC, LA, Chicago]
+      zip:
+        gen: int
+        config:
+          min: 10000
+          max: 99999`,
+	})
 }

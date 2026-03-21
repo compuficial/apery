@@ -335,4 +335,15 @@ func init() {
 			maxRepeat: maxRepeat,
 		}, nil
 	})
+	MustRegisterInfo("regex", GeneratorInfo{
+		Description: "String matching a regex pattern subset",
+		ConfigKeys: []ConfigKey{
+			{Name: "pattern", Type: "string", Required: true, Desc: "Regex pattern to generate from"},
+			{Name: "max_repeat", Type: "int", Desc: "Maximum repeat for unbounded quantifiers (default 10)", Default: "10"},
+		},
+		Example: `- name: phone
+  gen: regex
+  config:
+    pattern: "\\(\\d{3}\\) \\d{3}-\\d{4}"`,
+	})
 }

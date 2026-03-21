@@ -137,4 +137,22 @@ func init() {
 		}
 		return &SampleGenerator{values: values, minN: minN, maxN: maxN}, nil
 	})
+	MustRegisterInfo("sample", GeneratorInfo{
+		Description: "Select N unique items without replacement",
+		ConfigKeys: []ConfigKey{
+			{Name: "values", Type: "[]any", Desc: "Inline value list (mutually exclusive with file/url)"},
+			{Name: "file", Type: "string", Desc: "Path to newline-delimited file"},
+			{Name: "url", Type: "string", Desc: "URL to fetch values from (requires allowlist)"},
+			{Name: "allowlist", Type: "[]any", Desc: "Allowed URL prefixes (required with url)"},
+			{Name: "n", Type: "int", Desc: "Fixed sample size (mutually exclusive with min_n/max_n)"},
+			{Name: "min_n", Type: "int", Desc: "Minimum sample size for variable mode"},
+			{Name: "max_n", Type: "int", Desc: "Maximum sample size for variable mode"},
+		},
+		Example: `- name: skills
+  gen: sample
+  config:
+    values: [Go, Python, Rust, TypeScript]
+    min_n: 2
+    max_n: 4`,
+	})
 }

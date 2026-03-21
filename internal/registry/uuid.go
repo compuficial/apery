@@ -43,4 +43,9 @@ func init() {
 	MustRegister("uuid", func(config map[string]any) (Generator, error) {
 		return &UUIDGenerator{}, nil
 	})
+	MustRegisterInfo("uuid", GeneratorInfo{
+		Description: "UUID v4 string",
+		Example: `- name: id
+  gen: uuid`,
+	})
 }

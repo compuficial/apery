@@ -33,4 +33,14 @@ func init() {
 		}
 		return &ConstGenerator{value: value}, nil
 	})
+	MustRegisterInfo("const", GeneratorInfo{
+		Description: "Fixed literal value on every row",
+		ConfigKeys: []ConfigKey{
+			{Name: "value", Type: "any", Required: true, Desc: "The constant value to emit"},
+		},
+		Example: `- name: status
+  gen: const
+  config:
+    value: active`,
+	})
 }

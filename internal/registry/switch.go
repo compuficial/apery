@@ -139,4 +139,29 @@ func init() {
 			deps:     deps,
 		}, nil
 	})
+	MustRegisterInfo("switch", GeneratorInfo{
+		Description: "Conditional dispatch based on another field's value",
+		ConfigKeys: []ConfigKey{
+			{Name: "key", Type: "string", Required: true, Desc: "Row field name to switch on"},
+			{Name: "cases", Type: "map[string]any", Required: true, Desc: "Map of field values to generator specs"},
+			{Name: "default", Type: "map[string]any", Desc: "Fallback generator spec if no case matches"},
+		},
+		Example: `- name: access_level
+  gen: switch
+  config:
+    key: department
+    cases:
+      engineering:
+        gen: const
+        config:
+          value: full
+      sales:
+        gen: const
+        config:
+          value: read-only
+    default:
+      gen: const
+      config:
+        value: standard`,
+	})
 }

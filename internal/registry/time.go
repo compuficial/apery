@@ -106,4 +106,19 @@ func init() {
 		}
 		return &TimeGenerator{start: start, end: end, format: format, loc: loc}, nil
 	})
+	MustRegisterInfo("time", GeneratorInfo{
+		Description: "Random timestamp within a configurable range",
+		ConfigKeys: []ConfigKey{
+			{Name: "start", Type: "string", Desc: "Start time in RFC3339 or YYYY-MM-DD (default 2020-01-01)"},
+			{Name: "end", Type: "string", Desc: "End time in RFC3339 or YYYY-MM-DD (default 2030-12-31)"},
+			{Name: "format", Type: "string", Desc: "Go time format string (default RFC3339)"},
+			{Name: "tz", Type: "string", Desc: "Timezone name (default UTC)"},
+		},
+		Example: `- name: created_at
+  gen: time
+  config:
+    start: "2024-01-01"
+    end: "2024-12-31"
+    format: "2006-01-02"`,
+	})
 }

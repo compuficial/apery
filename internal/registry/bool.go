@@ -46,4 +46,14 @@ func init() {
 		}
 		return &BoolGenerator{probability: probability}, nil
 	})
+	MustRegisterInfo("bool", GeneratorInfo{
+		Description: "Boolean with configurable probability",
+		ConfigKeys: []ConfigKey{
+			{Name: "probability", Type: "float", Desc: "Probability of true (default 0.5)", Default: "0.5"},
+		},
+		Example: `- name: active
+  gen: bool
+  config:
+    probability: 0.8`,
+	})
 }

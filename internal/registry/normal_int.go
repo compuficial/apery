@@ -114,4 +114,20 @@ func init() {
 			clampMax: clampMax,
 		}, nil
 	})
+	MustRegisterInfo("normal_int", GeneratorInfo{
+		Description: "Normally distributed integer with optional clamping",
+		ConfigKeys: []ConfigKey{
+			{Name: "mu", Type: "float", Desc: "Mean (default 0.0)", Default: "0.0"},
+			{Name: "sigma", Type: "float", Desc: "Standard deviation (default 1.0)", Default: "1.0"},
+			{Name: "clamp_min", Type: "int", Desc: "Optional lower clamp"},
+			{Name: "clamp_max", Type: "int", Desc: "Optional upper clamp"},
+		},
+		Example: `- name: age
+  gen: normal_int
+  config:
+    mu: 35
+    sigma: 10
+    clamp_min: 18
+    clamp_max: 80`,
+	})
 }

@@ -128,4 +128,22 @@ func init() {
 		}
 		return &OneOfGenerator{gens: gens, weights: weights}, nil
 	})
+	MustRegisterInfo("one_of", GeneratorInfo{
+		Description: "Randomly dispatch to one of several generators",
+		ConfigKeys: []ConfigKey{
+			{Name: "generators", Type: "[]any", Required: true, Desc: "Array of generator specs ({gen, config})"},
+			{Name: "weights", Type: "[]any", Desc: "Optional weights for non-uniform selection"},
+		},
+		Example: `- name: contact
+  gen: one_of
+  config:
+    generators:
+      - gen: regex
+        config:
+          pattern: "[a-z]+@example.com"
+      - gen: regex
+        config:
+          pattern: "\\+1-\\d{3}-\\d{4}"
+    weights: [7, 3]`,
+	})
 }

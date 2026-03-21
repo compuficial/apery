@@ -88,4 +88,17 @@ func init() {
 			imax: imax,
 		}, nil
 	})
+	MustRegisterInfo("zipf", GeneratorInfo{
+		Description: "Zipf-distributed integer for long-tail patterns",
+		ConfigKeys: []ConfigKey{
+			{Name: "s", Type: "float", Desc: "Skewness parameter (default 1.1)", Default: "1.1"},
+			{Name: "v", Type: "float", Desc: "Offset parameter (default 1.0)", Default: "1.0"},
+			{Name: "imax", Type: "int", Desc: "Maximum value (default 100)", Default: "100"},
+		},
+		Example: `- name: popularity
+  gen: zipf
+  config:
+    s: 1.5
+    imax: 1000`,
+	})
 }

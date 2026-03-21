@@ -118,4 +118,18 @@ func init() {
 			clampMax: clampMax,
 		}, nil
 	})
+	MustRegisterInfo("normal_float", GeneratorInfo{
+		Description: "Normally distributed float (Gaussian)",
+		ConfigKeys: []ConfigKey{
+			{Name: "mu", Type: "float", Desc: "Mean (default 0.0)", Default: "0.0"},
+			{Name: "sigma", Type: "float", Desc: "Standard deviation (default 1.0)", Default: "1.0"},
+			{Name: "clamp_min", Type: "float", Desc: "Optional lower clamp"},
+			{Name: "clamp_max", Type: "float", Desc: "Optional upper clamp"},
+		},
+		Example: `- name: score
+  gen: normal_float
+  config:
+    mu: 75.0
+    sigma: 10.0`,
+	})
 }

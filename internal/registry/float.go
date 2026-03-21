@@ -61,4 +61,16 @@ func init() {
 		}
 		return &FloatGenerator{min: min, max: max}, nil
 	})
+	MustRegisterInfo("float", GeneratorInfo{
+		Description: "Uniform random float within a range",
+		ConfigKeys: []ConfigKey{
+			{Name: "min", Type: "float", Desc: "Minimum value (default 0.0)", Default: "0.0"},
+			{Name: "max", Type: "float", Desc: "Maximum value (default 100.0)", Default: "100.0"},
+		},
+		Example: `- name: score
+  gen: float
+  config:
+    min: 0.0
+    max: 1.0`,
+	})
 }

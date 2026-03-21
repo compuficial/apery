@@ -143,4 +143,21 @@ func init() {
 
 		return gen, nil
 	})
+	MustRegisterInfo("rel_ref", GeneratorInfo{
+		Description: "Foreign key sampling from a previously generated entity",
+		ConfigKeys: []ConfigKey{
+			{Name: "entity", Type: "string", Required: true, Desc: "Source entity name"},
+			{Name: "field", Type: "string", Required: true, Desc: "Source field name"},
+			{Name: "distribution", Type: "string", Desc: "Distribution: uniform (default) or zipf", Default: "uniform"},
+			{Name: "s", Type: "float", Desc: "Zipf skewness parameter (only with distribution: zipf)"},
+			{Name: "unique", Type: "bool", Desc: "Deduplicate within parent batch (default false)", Default: "false"},
+		},
+		Example: `- name: user_id
+  gen: rel_ref
+  config:
+    entity: User
+    field: id
+    distribution: zipf
+    s: 1.5`,
+	})
 }

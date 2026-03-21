@@ -61,4 +61,16 @@ func init() {
 		}
 		return &IntGenerator{min: min, max: max}, nil
 	})
+	MustRegisterInfo("int", GeneratorInfo{
+		Description: "Uniform random integer within a range",
+		ConfigKeys: []ConfigKey{
+			{Name: "min", Type: "int", Desc: "Minimum value (default 0)", Default: "0"},
+			{Name: "max", Type: "int", Desc: "Maximum value (default 100)", Default: "100"},
+		},
+		Example: `- name: age
+  gen: int
+  config:
+    min: 18
+    max: 65`,
+	})
 }

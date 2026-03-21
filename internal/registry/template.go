@@ -128,4 +128,14 @@ func init() {
 
 		return &TemplateGenerator{parts: parts, deps: deps}, nil
 	})
+	MustRegisterInfo("template", GeneratorInfo{
+		Description: "String interpolation with {field_name} placeholders from the current row",
+		ConfigKeys: []ConfigKey{
+			{Name: "tpl", Type: "string", Required: true, Desc: "Template string with {field} references"},
+		},
+		Example: `- name: email
+  gen: template
+  config:
+    tpl: "{username}@{domain}"`,
+	})
 }

@@ -292,4 +292,19 @@ func init() {
 		}
 		return &PickGenerator{values: values, weights: weights}, nil
 	})
+	MustRegisterInfo("pick", GeneratorInfo{
+		Description: "Random selection from a value list, file, or URL",
+		ConfigKeys: []ConfigKey{
+			{Name: "values", Type: "[]any", Desc: "Inline value list (mutually exclusive with file/url)"},
+			{Name: "file", Type: "string", Desc: "Path to newline-delimited file"},
+			{Name: "url", Type: "string", Desc: "URL to fetch values from (requires allowlist)"},
+			{Name: "allowlist", Type: "[]any", Desc: "Allowed URL prefixes (required with url)"},
+			{Name: "weights", Type: "[]any", Desc: "Optional weights for non-uniform selection (inline values only)"},
+		},
+		Example: `- name: department
+  gen: pick
+  config:
+    values: [engineering, sales, marketing]
+    weights: [50, 30, 20]`,
+	})
 }
