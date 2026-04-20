@@ -1,1 +1,4 @@
+bin/
+dist/
 output.jsonl
+output.csv
