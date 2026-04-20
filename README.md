@@ -1,22 +1,21 @@
-```
-                 __,__
-        .--.  .-"     "-.  .--.
-       / .. \/  .-. .-.  \/ .. \
-      | |  '|  /   Y   \  |'  | |
-      | \   \  \ 0 | 0 /  /   / |
-       \ '- ,\.-"""""""-./, -' /
-        ''-' /_   ^ ^   _\ '-''
-            |  \._   _./  |
-            \   \ '~' /   /
-             '._ '-=-' _.'
-                '-----'
-```
+# Apery — Synthetic Data Generator for Agents
 
-# apery
+<p align="center">
+  <img src="docs/assets/apery-logo.png" alt="Apery" width="500">
+</p>
 
-**Deterministic synthetic data generation for agents and pipelines.**
+<p align="center">
+  <strong>Deterministic synthetic data generation for agents.</strong>
+</p>
 
-Apery generates synthetic data from declarative YAML plans. Same plan, same seed, same output — every time. 1M rows in under 2 seconds.
+<p align="center">
+  <a href="https://github.com/compuficial/apery/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/compuficial/apery/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
+  <a href="https://github.com/compuficial/apery/releases"><img src="https://img.shields.io/github/v/release/compuficial/apery?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
+  <a href="https://discord.gg/apery"><img src="https://img.shields.io/discord/000000000000000000?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+</p>
+
+Apery generates synthetic data from declarative plans. Same plan, same seed, same output — every time. 1M rows in under 2 seconds.
 
 Built for AI agents as a first-class citizen. Silent stdout by default, structured logging, machine-parseable output, clean exit codes.
 
