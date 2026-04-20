@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"apery/internal/rng"
+	"github.com/compuficial/apery/internal/rng"
 )
 
 const (

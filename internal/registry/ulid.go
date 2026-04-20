@@ -1,7 +1,7 @@
 package registry
 
 import (
-	"apery/internal/rng"
+	"github.com/compuficial/apery/internal/rng"
 	"time"
 
 	"github.com/oklog/ulid/v2"

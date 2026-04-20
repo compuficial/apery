@@ -1,6 +1,6 @@
 package runtime
 
-import "apery/internal/registry"
+import "github.com/compuficial/apery/internal/registry"
 
 // mapEntityStore is the concrete implementation of registry.EntityStore.
 // It stores column data keyed by "entity.field" and is populated by the

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"apery/internal/plan"
-	"apery/internal/writer"
+	"github.com/compuficial/apery/internal/plan"
+	"github.com/compuficial/apery/internal/writer"
 )
 
 var update = flag.Bool("update", false, "update golden files")

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"apery/internal/plan"
-	"apery/internal/registry"
-	"apery/internal/rng"
-	"apery/internal/writer"
+	"github.com/compuficial/apery/internal/plan"
+	"github.com/compuficial/apery/internal/registry"
+	"github.com/compuficial/apery/internal/rng"
+	"github.com/compuficial/apery/internal/writer"
 )
 
 // stubRowAwareGen is a test-only generator that implements RowAwareGenerator and DependencyDeclarer.

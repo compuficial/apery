@@ -1,4 +1,4 @@
-module apery
+module github.com/compuficial/apery
 
 go 1.24.3
 

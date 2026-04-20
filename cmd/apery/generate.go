@@ -8,9 +8,9 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"apery/internal/plan"
-	"apery/internal/runtime"
-	"apery/internal/writer"
+	"github.com/compuficial/apery/internal/plan"
+	"github.com/compuficial/apery/internal/runtime"
+	"github.com/compuficial/apery/internal/writer"
 
 	"github.com/spf13/cobra"
 )

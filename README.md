@@ -17,17 +17,33 @@
 
 Apery generates synthetic data from declarative plans. Same plan, same seed, same output — every time. 1M rows in under 2 seconds.
 
-Built for AI agents as a first-class citizen. Silent stdout by default, structured logging, machine-parseable output, clean exit codes.
+AI agents are a first-class citizen. Silent stdout by default, structured logging, machine-parseable output, clean exit codes.
 
 ## Install
+
+**Pre-built binary** (Linux / macOS / Windows, amd64 / arm64):
+
+```bash
+# Linux x86_64 — pick the asset for your platform from the releases page
+curl -L https://github.com/compuficial/apery/releases/latest/download/apery_<version>_linux_x86_64.tar.gz \
+  | tar xz -C /tmp && sudo mv /tmp/apery /usr/local/bin/
+```
+
+See [releases](https://github.com/compuficial/apery/releases) for all platforms.
+
+**Go install** (requires Go 1.24+):
+
+```bash
+go install github.com/compuficial/apery/cmd/apery@latest
+```
+
+**From source** (requires Go 1.24+):
 
 ```bash
 git clone https://github.com/compuficial/apery.git
 cd apery
 make install   # builds and installs to ~/.local/bin
 ```
-
-Requires Go 1.24+.
 
 ## 30-Second Demo
 

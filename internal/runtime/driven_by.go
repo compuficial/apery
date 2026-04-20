@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sort"
 
-	"apery/internal/plan"
-	"apery/internal/registry"
-	"apery/internal/rng"
-	"apery/internal/writer"
+	"github.com/compuficial/apery/internal/plan"
+	"github.com/compuficial/apery/internal/registry"
+	"github.com/compuficial/apery/internal/rng"
+	"github.com/compuficial/apery/internal/writer"
 )
 
 // drivenByLayout holds the precomputed child counts and prefix sums

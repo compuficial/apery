@@ -1,10 +1,10 @@
 package apery
 
 import (
-	"apery/internal/plan"
-	"apery/internal/registry"
-	"apery/internal/runtime"
-	"apery/internal/writer"
+	"github.com/compuficial/apery/internal/plan"
+	"github.com/compuficial/apery/internal/registry"
+	"github.com/compuficial/apery/internal/runtime"
+	"github.com/compuficial/apery/internal/writer"
 	"context"
 	"io"
 	"log/slog"

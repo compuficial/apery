@@ -9,7 +9,7 @@
 package registry
 
 import (
-	"apery/internal/rng"
+	"github.com/compuficial/apery/internal/rng"
 	"fmt"
 	"sort"
 )

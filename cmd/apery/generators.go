@@ -6,7 +6,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"apery/internal/registry"
+	"github.com/compuficial/apery/internal/registry"
 
 	"github.com/spf13/cobra"
 )

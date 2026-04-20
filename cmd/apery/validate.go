@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"apery/internal/plan"
+	"github.com/compuficial/apery/internal/plan"
 
 	"github.com/spf13/cobra"
 )

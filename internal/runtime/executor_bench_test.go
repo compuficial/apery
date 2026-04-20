@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"apery/internal/plan"
-	"apery/internal/writer"
+	"github.com/compuficial/apery/internal/plan"
+	"github.com/compuficial/apery/internal/writer"
 )
 
 type discardWriter struct{}
