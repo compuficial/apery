@@ -1,1837 +1,595 @@
-# Synthetic Data Generator (Go + GraphQL) — Full Expanded Design / Specification / Requirements
+# Apery — Specification
 
-## 1. Introduction
+Apery is a deterministic synthetic data generator written in Go. Given a declarative plan and a seed, it produces byte-identical output on every run, every platform, every worker count.
 
-This document provides a deeply technical and comprehensive design and implementation specification for an **AI‑centric Synthetic Data Generator (SDG)** implemented in **Go**, exposed via **GraphQL**, and intended for use by:
+This document is the reference spec for the code in this repository. It is grounded in the implementation — if this document and the code disagree, the code wins and the spec is wrong.
 
-* LLMs (Large Language Models)
-* Autonomous AI Agents
-* MCP (Model Context Protocol) clients
-* Humans needing deterministic, schema‑driven synthetic data at scale
-
-The system is not merely a test‑data tool but a fully declarative, extensible, deterministic synthetic data universe that AI systems and humans can call, understand, reason about, and modify.
-
-The generator must:
-
-* Support declarative schemas
-* Allow fully deterministic generation under a global seed
-* Scale to millions of rows
-* Provide relational integrity
-* Support primitive and composite generators
-* Allow AI agents to define or mutate schemas
-* Output structured, semi‑structured, conversational, and tool‑trace data formats
-
-This guide describes how to **build the entire system end‑to‑end**, including architecture, generator registry, execution engine, catalogs, LLM integrations, NLP plan compiler, and runtime design.
+See [`docs/usage.md`](usage.md) for a practical walkthrough with worked examples.
 
 ---
 
-## 2. Core Philosophy
+## 1. Overview
 
-### 2.1 Composition Over Code
+- **Purpose**: generate schema-driven synthetic data for AI agents, tests, demos, benchmarks, and fixtures.
+- **Interface**: a single CLI (`apery`) and a small Go library (`github.com/compuficial/apery`).
+- **Input**: a declarative plan in YAML or JSON.
+- **Output**: streaming JSONL or CSV — stdout, a file, or one file per entity.
+- **Runtime**: Go 1.24+, single static binary, no runtime dependencies.
 
-The core design rests on **minimal primitives** plus **combinators**, making user‑defined compositions far more powerful than a large fixed set of coded generators.
-
-The SDG does **not** ship 200 custom generators.
-It ships **~22 universal primitives**, and all complexity is built via:
-
-* nested objects
-* lists
-* templates
-* conditional dispatch
-* catalogs
-
-This keeps the engine small, fast, and predictable.
-
-### 2.2 Determinism Under Seed
-
-The system guarantees bit‑perfect reproducibility:
-
-```
-Plan + Seed + Version = Exactly Identical Output
-```
-
-This includes:
-
-* parallel execution
-* foreign‑key relations
-* normal distributions
-* template outputs
-* platform independence (32-bit vs 64-bit systems)
-
-**Implementation:** All generators use explicit sized types (`int64`, `float64`) to ensure identical behavior across platforms.
-
-### 2.3 AI‑First Design
-
-The system must:
-
-* Accept **LLM function‑calling input**
-* Expose **MCP resources and tools**
-* Allow AI to discover generators, catalogs, and fields
-* Provide a **natural‑language → plan compiler**
-* Provide examples for LLMs to condition on
-
-### 2.4 Catalog‑Driven Realism
-
-Catalogs come from:
-
-* built‑in system catalogs
-* user‑uploaded catalogs
-* remote URLs
-* LLM‑synthesized catalogs
-
-### 2.5 Mixed‑Mode Output
-
-Supports:
-
-* relational data
-* JSONL
-* CSV
-* Parquet
-* SQL dumps
-* SFT datasets
-* DPO/RLHF preference pairs
-* Chat message arrays
-* Tool call traces
-* RAG evaluation triples
+Apery is designed to be driven by agents and scripts first. Silent stdout, machine-parseable output, explicit exit codes, and structured stderr logging make it predictable to automate.
 
 ---
 
-## 3. High‑Level Architecture
+## 2. Design Principles
 
-The SDG architecture includes 9 major components:
+- **Deterministic.** `Plan + Seed` produces byte-identical output across runs, platforms, worker counts, and chunk sizes. This is the central invariant — everything else yields to it.
+- **Declarative.** Plans describe *what* to generate, not *how*. The engine owns parallelism, chunking, seed derivation, and ordering.
+- **Composable.** A small set of universal generators compose via nesting (`object`, `list`), templates, conditional dispatch (`switch`), and value lists. No domain-specific generators.
+- **Streaming.** Records are written as they're produced. Memory is bounded by chunk size, not row count.
+- **Zero runtime deps.** One binary. No database, no server, no external services.
 
+---
+
+## 3. Architecture
+
+```mermaid
+flowchart LR
+    Plan([Plan<br/>YAML / JSON])
+    Registry[[Registry<br/>20 generators]]
+    Runtime[[Runtime<br/>chunked parallel executor]]
+    Writer[[Writer<br/>JSONL / CSV / split]]
+    Out([Records])
+
+    Plan --> Registry --> Runtime --> Writer --> Out
+    Seed([Seed]) -. derive .-> Runtime
 ```
-+---------------------------------------------------------------+
-| AI‑Centric Synthetic Data Generator                            |
-+------------+----------------+---------------------------------+
-| 1. Plan    | 2. Registry    | 3. Catalog Loader               |
-| Compiler   | (Primitives)   | (Files, URLs, Inline)           |
-+------------+----------------+---------------------------------+
-| 4. Execution Orchestrator (Parallel deterministic RNG engine) |
-+---------------------------------------------------------------+
-| 5. Writers: JSONL | CSV | Parquet | SQL | SFT | DPO | Chat |  |
-|             RAG | Tool-Trace                                    |
-+---------------------------------------------------------------+
-| 6. Expression Engine (CEL or Starlark)                        |
-+---------------------------------------------------------------+
-| 7. Interfaces: GraphQL | HTTP | CLI | MCP | SDK               |
-+---------------------------------------------------------------+
-| 8. NL Plan Compiler (LLM-driven)                              |
-+---------------------------------------------------------------+
-| 9. Telemetry and Observability                                |
-+---------------------------------------------------------------+
+
+| Stage | Package | Role |
+|-------|---------|------|
+| **Plan** | [`internal/plan`](../internal/plan) | Parse and validate YAML/JSON into entities, fields, relational constraints. |
+| **Registry** | [`internal/registry`](../internal/registry) | Generator factories and interfaces. Built-ins auto-register via `init()`; each is self-describing via `GeneratorInfo`. |
+| **Runtime** | [`internal/runtime`](../internal/runtime) | Executor: seed derivation, chunked parallel generation, driven_by layout, cross-entity column store, `slog` structured logging. |
+| **Writer** | [`internal/writer`](../internal/writer) | JSONL, CSV, and per-entity split output. `OrderedMap` preserves field order. |
+| **RNG** | [`internal/rng`](../internal/rng) | PCG64-backed deterministic PRNG with FNV-1a seed derivation; implements `io.Reader` for entropy-consuming libraries (ULID). |
+| **CLI** | [`cmd/apery`](../cmd/apery) | Cobra subcommands: `generate`, `validate`, `list`, `describe`, `version`. |
+
+### Public Go API
+
+`run.go` re-exports the library surface:
+
+```go
+plan, _ := apery.LoadPlanFile("plan.yaml")
+w, _   := apery.NewJSONLWriter("out.jsonl")
+_      = apery.Run(ctx, plan, w, apery.WithWorkers(8))
 ```
 
 ---
 
-## 4. Declarative Data Model
+## 4. Plan Schema
 
-### 4.1 Plan
+A plan contains a root seed and an ordered list of entities. Entities that reference others (via `rel_ref` or `driven_by`) must be declared **after** their dependencies.
 
-A plan defines:
+### 4.1 Go types
 
-* Entities
-* Fields
-* Generators
-* Relations
-* Constraints
-* Output formats
+From [`internal/plan/plan.go`](../internal/plan/plan.go):
 
-Plans are declarative JSON or GraphQL inputs.
+```go
+type Plan struct {
+    Seed     int64        `yaml:"seed"     json:"seed"`
+    Entities []EntitySpec `yaml:"entities" json:"entities"`
+}
 
-### 4.2 Entities
+type EntitySpec struct {
+    Name     string      `yaml:"name"                 json:"name"`
+    Count    int64       `yaml:"count,omitempty"      json:"count,omitempty"`
+    DrivenBy *DrivenBy   `yaml:"driven_by,omitempty"  json:"driven_by,omitempty"`
+    Fields   []FieldSpec `yaml:"fields"               json:"fields"`
+}
 
-Each represents a table, e.g.:
+type DrivenBy struct {
+    Entity string `yaml:"entity" json:"entity"`  // parent entity name
+    Field  string `yaml:"field"  json:"field"`   // parent field to inject
+    As     string `yaml:"as"     json:"as"`      // name for the injected field in child
+    Min    int64  `yaml:"min"    json:"min"`     // minimum children per parent (>= 1)
+    Max    int64  `yaml:"max"    json:"max"`     // maximum children per parent (>= Min)
+}
 
-* `User`
-* `Company`
-* `Encounter`
-* `Chat`
+type FieldSpec struct {
+    Name   string         `yaml:"name"             json:"name"`
+    Gen    string         `yaml:"gen"              json:"gen"`
+    Config map[string]any `yaml:"config,omitempty" json:"config,omitempty"`
+}
+```
 
-Includes:
+### 4.2 YAML example
 
-* row count
-* fields
-* relations
-* uniqueness
+```yaml
+seed: 42
+entities:
+  - name: User
+    count: 10000
+    fields:
+      - name: id
+        gen: seq
+      - name: email
+        gen: regex
+        config:
+          pattern: "[a-z]{5,10}@(gmail|yahoo)\\.com"
 
-### 4.3 Fields
+  - name: Order
+    driven_by:
+      entity: User
+      field: id
+      as: user_id
+      min: 1
+      max: 5
+    fields:
+      - name: order_id
+        gen: ulid
+      - name: amount
+        gen: float
+        config:
+          min: 9.99
+          max: 999.99
+```
 
-A field includes:
+### 4.3 Validation rules
 
-* name
-* type
-* generator name
-* generator config
-* dependency list
-* uniqueness
-* null probability
+Enforced by `plan.Validate` in [`internal/plan/validate.go`](../internal/plan/validate.go):
 
-### 4.4 Relations
+**Entity-level**
+- Name is non-empty and unique across the plan.
+- Exactly one of `Count` or `DrivenBy` must be set.
+- At least one field must be defined.
+- Field names within an entity must be unique. `DrivenBy.As` must not collide with a declared field.
+- Config keys with a leading underscore (`_store`, etc.) are reserved and rejected.
 
-Types:
-
-* many‑to‑one
-* one‑to‑many
-* many‑to‑many
-
-Foreign key sampling uses weighted alias tables.
+**Relational**
+- A `DrivenBy` parent entity must be declared before the child.
+- `DrivenBy.Field` must exist on the parent entity (including the parent's own injected `As` field, if any).
+- `DrivenBy.Min >= 1` and `DrivenBy.Max >= DrivenBy.Min`.
+- A `rel_ref` target entity must be declared before the referencing entity, and the target field must exist on it.
+- For `unique: true` `rel_ref` inside a `driven_by` entity, `DrivenBy.Max` must not exceed the target entity's `Count` (feasibility check).
 
 ---
 
-## 5. Generator Registry (Core of the System)
+## 5. Generators
 
-The SDG ships a **minimal set** of primitives:
+20 built-in generators, grouped by shape. Full config reference via `apery describe generator <name>`.
 
-### 5.1 Scalar Generators
+### 5.1 Scalar
 
-* `uniform_int(min,max)` — generates `int64` values uniformly distributed in range
-* `uniform_float(min,max)` — generates `float64` values uniformly distributed in range
-* `normal_float(mu,sigma)` — generates `float64` values with normal distribution
-* `normal_int(mu,sigma,clamp)` — generates `int64` values with normal distribution
-* `zipf(s,vmax)` — generates `int64` values following Zipf distribution
-* `bool(p)` — generates boolean values with probability p
-* `regex(pattern)` — generates strings matching a supported regex pattern subset (see below)
-* `time(start,end,tz)` — generates timestamps in range
-* `uuid_v4()` — generates UUID v4 strings
-* `ulid()` — generates ULID strings
-* `seq(start,step)` — generates sequential `int64` values
-* `pick(values|file|url)` — randomly selects from list
-* `pick(values|file|url, weights)` — weighted random selection from list; weights array must match values length, normalized automatically
-* `const(value)` — emits a fixed literal value on every row
+| Generator | Required | Optional | Output | Description |
+|-----------|----------|----------|--------|-------------|
+| `seq`          | —                  | `start` (int=1), `step` (int=1, nonzero) | `int64`  | Sequential integer, optionally per-row seekable |
+| `const`        | `value` (any)      | —                                       | any      | Fixed literal on every row |
+| `bool`         | —                  | `probability` (float=0.5, [0,1])        | `bool`   | Weighted boolean |
+| `int`          | —                  | `min` (int=0), `max` (int=100)          | `int64`  | Uniform integer in range |
+| `float`        | —                  | `min` (float=0.0), `max` (float=100.0)  | `float64`| Uniform float in range |
+| `normal_int`   | —                  | `mu` (=0.0), `sigma` (=1.0), `clamp_min`, `clamp_max` | `int64`  | Gaussian integer with optional clamp |
+| `normal_float` | —                  | `mu` (=0.0), `sigma` (=1.0), `clamp_min`, `clamp_max` | `float64`| Gaussian float with optional clamp |
+| `zipf`         | —                  | `s` (=1.1), `v` (=1.0), `imax` (=100)   | `uint64` | Zipf-distributed integer |
+| `pick`         | one of `values` \| `file` \| `url` | `weights`, `allowlist` (required with `url`) | any | Random selection from inline list, file, or URL |
+| `uuid`         | —                  | —                                       | `string` | UUID v4 |
+| `ulid`         | —                  | —                                       | `string` | ULID (sortable) |
+| `time`         | —                  | `start`, `end`, `format`, `tz`          | `string` | Timestamp in range; defaults `2020-01-01`..`2030-12-31`, RFC3339 UTC |
+| `regex`        | `pattern`          | `max_repeat` (int=10)                   | `string` | String matching a regex-subset pattern |
 
-### 5.2 Composite Generators
+### 5.2 Composite
 
-* `object(fields)`
-* `list(len|min_len+max_len, item)` — generates arrays; `len` for fixed length, or `min_len`/`max_len` for variable length (random uniform within range)
-* `sample(values|file|url, n|min_n+max_n)` — selects N unique items without replacement from a value set; errors if N exceeds available values
-* `one_of(gens,weights)`
-* `switch(key,cases)`
-* `template(tpl)` — string interpolation with `{field_name}` placeholders resolved from the current row
+| Generator  | Required | Optional | Output | Description |
+|------------|----------|----------|--------|-------------|
+| `object`   | `fields` (map of sub-specs) | —                    | map    | Nested object; sub-fields get deterministic sub-seeds derived by name |
+| `list`     | `item` (sub-spec)           | `len` \| (`min_len` + `max_len`) | `[]any` | Array from one generator |
+| `sample`   | one of `values` \| `file` \| `url` | `n` \| (`min_n` + `max_n`), `weights`, `allowlist` | `[]any` | N unique items without replacement |
+| `one_of`   | `generators` ([]sub-spec)   | `weights`            | any    | Weighted random dispatch to one of several generators |
+| `template` | `tpl` (string with `{field}` refs) | —             | `string` | Row-aware string interpolation |
+| `switch`   | `key`, `cases` (map)        | `default` (sub-spec) | any    | Row-aware conditional dispatch based on another field's value |
 
-### 5.3 Relational Generators
+`template` and `switch` are **row-aware**: they read previously generated fields in the current row. Both declare their field dependencies so the executor can enforce earlier-field ordering.
 
-* `rel_ref(target,field)`
-* `m2m(target,meanDegree)`
+### 5.3 Relational
 
-These primitives can build anything: healthcare records, LLM training dialogues, financial schemas, telemetry data, etc.
+| Generator | Required | Optional | Output | Description |
+|-----------|----------|----------|--------|-------------|
+| `rel_ref` | `entity`, `field` | `distribution` (`uniform` \| `zipf`, default `uniform`), `s` (zipf skew), `unique` (bool, default false) | any | Foreign key sampled from a previously generated entity column |
 
----
+`rel_ref` is injected with an internal `_store` reference at chunk instantiation; it implements `Resettable` so unique-trackers are cleared between parent batches in driven_by entities.
 
-### Regex Generator Subset
+### 5.4 Regex subset
 
-The `regex(pattern)` generator supports a **regular-expression subset** that is guaranteed to be generatable and deterministic. If a pattern falls outside this subset, plan validation must fail.
+The `regex` generator supports the generatable portion of RE2:
 
-Supported:
-- literals, concatenation, alternation, grouping/capture
-- character classes (including Unicode ranges)
-- quantifiers: `*`, `+`, `?`, `{m}`, `{m,n}`, `{m,}` (unbounded and explicit max are capped by `max_repeat`; error if `m > max_repeat`)
-- anchors `^` and `$` **only at the start/end of a concatenation** and never under quantifiers
-
-Not supported (must error):
-- word boundaries `\b` / `\B`
-- lookahead/lookbehind
-- backreferences/recursion/conditionals or other non-regular extensions
-
-Character domain:
-- `.` generates printable ASCII (code points 32–126) for readability.
-- Character classes are rune-based and can cover full Unicode ranges.
-
-## 6. Catalog Subsystem
-
-### 6.1 Bundled Catalogs
-
-Bundled datasets include:
-
-* first names
-* last names
-* companies
-* domains
-* cities
-* product names
-* words
-
-### 6.2 User Catalogs
-
-Loaded via:
-
-```json
-{"file": "/data/custom/names.txt"}
-```
-
-### 6.3 Remote Catalogs
-
-Loaded via URL with allowlisting.
-
-### 6.4 Virtual (LLM‑Generated) Catalogs
-
-Agents can create catalogs via natural language.
-
-All catalogs are converted to weighted alias tables.
+- **Supported**: literals, concatenation, alternation, grouping, character classes (including Unicode), quantifiers (`*`, `+`, `?`, `{m}`, `{m,n}`, `{m,}`), anchors `^` and `$` at start/end only.
+- **Rejected with a validation error**: word boundaries (`\b`/`\B`), lookahead, lookbehind, backreferences, recursion, conditionals.
+- **Character domain**: `.` generates printable ASCII (32–126). Character classes are rune-based and cover full Unicode.
+- Unbounded quantifiers are capped by `max_repeat` (default 10).
 
 ---
 
-## 7. Execution Engine
+## 6. Relational Model
 
-### 7.1 Hierarchical RNG Model
+### 6.1 M:1 — `rel_ref`
+
+Sample values from a previously generated entity's column.
+
+```yaml
+- name: user_id
+  gen: rel_ref
+  config:
+    entity: User
+    field: id
+    distribution: zipf   # "uniform" (default) or "zipf"
+    s: 1.5               # zipf skew; only used when distribution: zipf
+    unique: false        # true → no duplicate picks within a parent batch
+```
+
+Distribution:
+- **uniform** — equal probability across all parent values
+- **zipf** — skewed "hot key" distribution parameterised by `s`
+
+### 6.2 1:M — `driven_by`
+
+Set on the child entity. The executor generates `Min` to `Max` child rows per parent row; the parent's `Field` value is auto-injected into each child row under `As`.
+
+```yaml
+- name: Order
+  driven_by:
+    entity: User
+    field: id
+    as: user_id
+    min: 1
+    max: 5
+  fields:
+    - name: order_id
+      gen: ulid
+```
+
+Child count per parent is deterministic, derived from the parent index and a dedicated count seed (see §7.1).
+
+### 6.3 M:N — composition, not a built-in
+
+M:N is expressed as a junction entity with `driven_by` (1:M from the left side) and a `unique` `rel_ref` (M:1 to the right side):
+
+```yaml
+- name: UserTag              # junction
+  driven_by:
+    entity: User
+    field: id
+    as: user_id
+    min: 1
+    max: 5
+  fields:
+    - name: tag_id
+      gen: rel_ref
+      config:
+        entity: Tag
+        field: id
+        unique: true          # no duplicate tags per user
+```
+
+There is intentionally no `m2m` generator; composition keeps the engine small and the plan explicit.
+
+---
+
+## 7. Execution Model
+
+### 7.1 Seed derivation hierarchy
+
+Every level derives deterministically from its parent seed via FNV-1a label hashing or index XOR, followed by a bit-mix:
 
 ```
-Root Seed
- ├── Entity Seed
- │      ├── Field Seed
- │      │      └── Row Seed
- │      └── Field Seed
- └── Entity Seed
+Root Seed (Plan.Seed)
+ └─ Entity Seed: Derive(root, "EntityName[index]")
+    ├─ Field Seed: Derive(entitySeed, fieldName)
+    │  └─ Row Seed:  DeriveIndex(fieldSeed, rowIndex)
+    │     └─ Sub-field Seed: Derive(rowSeed, subFieldName)   # composite generators
+    └─ Count Seed: Derive(entitySeed, "counts")              # driven_by only
+       └─ Per-parent count: DeriveIndex(countSeed, parentIndex)
 ```
 
-Ensures deterministic parallel execution.
+Key properties:
+- **Hierarchical** — each level is isolated from siblings.
+- **Order-independent for composite generators** — sub-seeds derive from names, not list positions.
+- **Parallel-safe** — a row seed depends only on field seed + row index, never on execution order.
 
-### 7.2 Chunk-Based Parallelism
+### 7.2 RNG internals
 
-* default chunk size: **50k rows**
-* worker count: **min(2×CPU, 64)**
+Implemented in [`internal/rng/rng.go`](../internal/rng/rng.go).
 
-### 7.3 Deterministic Row Generation
+- `Seed` is `uint64`; `SeedFromInt64` converts plan seeds.
+- Backed by `rand.NewPCG(seed, 0)` (Go stdlib PCG64).
+- `Derive(parent, label)` — FNV-1a of label, XOR with parent, then 64-bit mix.
+- `DeriveIndex(parent, index)` — XOR with index, then mix.
+- `GetSeed()` returns the construction seed; composite generators use it to derive per-sub-field seeds deterministically.
+- `Rng` implements `io.Reader`, so it can feed libraries like `ulid.New()` that expect an entropy source.
 
-Uses splitmix64 or PCG.
+### 7.3 Chunked parallel execution
 
-### 7.4 Uniqueness Enforcement
+- **Default chunk size**: 50,000 rows (`--chunk-size` to override).
+- **Default worker count**: `min(2 × NumCPU, 64)` (`--workers` to override).
+- Each chunk gets its own generator instances (factories are called per-chunk), keeping goroutines isolated.
+- Chunks execute in parallel; the executor reassembles results in row order before writing.
+- Standalone entities that include a `unique: true` `rel_ref` fall back to a single worker to keep the uniqueness set coherent.
 
-* bounded retries
-* entropy estimation
-* Bloom prechecks
+### 7.4 Two-phase driven_by
 
-### 7.5 Relation Resolution
+A driven entity is executed in two phases, because child counts depend on the parent row count and must be known before chunking:
 
-* M:1 sampling via alias table
-* 1:M via multinomial split
-* M:N via degree distribution + dedupe
+1. **Layout** — compute per-parent child counts via the count seed, then prefix-sum to get child row offsets. Total child rows and parent-boundary positions are now known.
+2. **Generation** — chunked parallel execution over the total child-row range, with each worker tracking which parent's batch it is inside.
+
+### 7.5 Parent-aligned chunking
+
+When a driven entity contains a `unique: true` `rel_ref`, chunks are aligned to parent boundaries so a `Resettable` generator's per-parent state is always local to a single worker.
+
+### 7.6 Cross-entity column store
+
+[`internal/runtime/entity_store.go`](../internal/runtime/entity_store.go) holds columns from completed entities for downstream reference.
+
+```go
+type EntityStore interface {
+    ReadOnlyEntityStore
+    StoreColumn(entity, field string, values []any)
+}
+
+type ReadOnlyEntityStore interface {
+    GetColumn(entity, field string) ([]any, bool)
+}
+```
+
+The executor scans the plan to determine which (entity, field) pairs downstream entities will need, captures only those columns after each entity finishes, and injects the store into `rel_ref` factories via the reserved `_store` config key at chunk time.
+
+### 7.7 Generator interfaces
+
+From [`internal/registry/registry.go`](../internal/registry/registry.go):
+
+```go
+type Generator interface {
+    Next(r *rng.Rng) (any, error)
+}
+
+type RowAwareGenerator interface {
+    Generator
+    NextWithRow(r *rng.Rng, row RowContext) (any, error)
+}
+
+type DependencyDeclarer interface {
+    Dependencies() []string
+}
+
+type Resettable interface {
+    Reset()
+}
+```
+
+- `RowAwareGenerator` — `template`, `switch`. The executor calls `NextWithRow` when this interface is satisfied, giving access to already-generated fields in the current row.
+- `DependencyDeclarer` — `template`, `switch`. Declared dependencies are validated to appear earlier in the field list.
+- `Resettable` — `rel_ref` (when `unique: true`). Reset at parent-batch boundaries inside driven_by entities.
 
 ---
 
 ## 8. Writers
 
-### Supported Formats
+### 8.1 Interface
 
-* **JSONL** (streaming)
-* **CSV**
-* **Parquet** — columnar binary format for data lakes, Spark, DuckDB, analytics
-* **SQL dumps** — executable INSERT statements for seeding databases
-* **SFT JSON** (instruction/input/output)
-* **DPO/RLHF preference pairs** — chosen/rejected pairs for LLM alignment training
-* **Chat message arrays**
-* **Tool-call traces**
-* **RAG evaluation triples**
-
-All writers support split modes:
-
-```
-train / val / test
+```go
+type Writer interface {
+    WriteRecord(entity string, record *OrderedMap) error
+    Close() error
+}
 ```
 
----
+`OrderedMap` preserves field insertion order so output column order matches plan field order — deterministic by construction.
 
-## 9. Natural-Language Plan Compiler
+### 8.2 JSONL
 
-Enables:
-
-* prompt → structured plan
-* schema inference
-* intent detection
-* generator selection
-
-Example input:
-
-```
-"Generate 500 retail transactions with realistic product categories."
-```
-
-Output plan includes:
-
-* Entities
-* Fields
-* pick(file|list)
-* amounts
-* timestamps
-* merchant IDs
-
----
-
-## 10. AI Agent Integration
-
-### 10.1 MCP Tools
-
-Tools exposed:
-
-* `generate_data`
-* `compile_plan`
-* `validate_plan`
-* `list_generators`
-* `list_catalogs`
-
-### 10.2 Function Calling
-
-OpenAI schema:
+Newline-delimited JSON, one record per line. The `_entity` field is prepended (single-stream mode only):
 
 ```json
-{
-  "name": "generate_data",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "plan": {"type": "object"},
-      "sample": {"type": "integer"}
-    }
-  }
-}
+{"_entity":"User","id":1,"email":"kczvbmih@outlook.com"}
+{"_entity":"User","id":2,"email":"yzdevl@yahoo.com"}
 ```
 
-### 10.3 Agent Workflow
+Constructors: `NewJSONLWriter(path)`, `NewJSONLWriterFromWriter(io.Writer)`.
 
-1. LLM interprets user prompt → draft plan
-2. SDG validates plan
-3. Agent previews
-4. User edits spec
-5. Agent regenerates final dataset
+### 8.3 CSV
+
+Streaming CSV. The header is emitted on the first record; subsequent records follow the same column order.
+
+```csv
+_entity,id,email
+User,1,kczvbmih@outlook.com
+User,2,yzdevl@yahoo.com
+```
+
+Constructors: `NewCSVWriter(path)`, `NewCSVWriterFromWriter(io.Writer)`.
+
+### 8.4 Split
+
+`NewSplitWriter(dir, format)` routes records to one file per entity. In split mode the `_entity` column is omitted from each file (the filename carries the entity identity).
+
+```
+out/
+├── User.jsonl
+├── Product.jsonl
+└── Order.jsonl
+```
+
+Format is `jsonl` or `csv`. Files are created lazily on first write.
 
 ---
 
-## 11. Go Runtime Implementation
+## 9. Determinism Guarantee
 
-### 11.1 Project Layout
+**Plan + Seed = identical output.** Always.
+
+This holds across:
+- Worker count, chunk size, and `GOMAXPROCS`.
+- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width).
+- Field ordering within composite generators (sub-seeds derive from names, not positions).
+- `driven_by` child counts (each parent's child count is derived from the parent index, not execution order).
+
+Golden-file regression tests in [`internal/runtime/determinism_helpers_test.go`](../internal/runtime/determinism_helpers_test.go) pin the byte-exact output of canonical plans, and a stress suite exercises the same plans under varied worker and chunk combinations.
+
+---
+
+## 10. CLI Reference
+
+### 10.1 `apery generate`
+
+Defined in [`cmd/apery/generate.go`](../cmd/apery/generate.go).
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-f`, `--file`       | —       | Plan file path (required) |
+| `-o`, `--output`     | `jsonl` | Output format: `jsonl` or `csv` |
+| `--output-dir`       | —       | Write to a directory instead of stdout |
+| `--split-entities`   | `false` | One file per entity (requires `--output-dir`) |
+| `--dry-run`          | `false` | Load and validate the plan; produce no data |
+| `--seed`             | —       | Override the plan's seed |
+| `--workers`          | auto    | Parallel worker count (auto = `min(2 × NumCPU, 64)`) |
+| `--chunk-size`       | `50000` | Rows per chunk |
+| `--verbose`          | `false` | Entity progress on stderr (slog Info) |
+| `--debug`            | `false` | Detailed seeds / chunks / layout on stderr (slog Debug) |
+
+### 10.2 `apery validate`
 
 ```
-/cmd/sdg
-/internal/plan
-/internal/runtime
-/internal/registry
-/internal/catalog
-/internal/writer
-/internal/http
-/internal/mcp
-/pkg/sdg (public SDK)
-
+apery validate -f plan.yaml
 ```
 
-# Synthetic Data Generator – Spec + Code Templates
+Loads the plan and runs validation. Prints `Plan is valid.` on success; exits with code `1` on failure.
 
-This document complements the existing design/spec canvas and adds the Go code templates and GraphQL schema.
+### 10.3 `apery list generators` / `apery describe generator <name>`
 
-## Go Code Templates by Subsystem
+```
+apery list generators                  # tabular list of all generators
+apery describe generator int           # config schema + YAML example
+apery describe generator rel_ref
+```
 
-### 1. cmd/sdg/main.go
+`describe` prints the name, description, config key table (key, type, required, default, description), and a ready-to-paste YAML example. Output is driven by the `GeneratorInfo` metadata registered alongside each generator.
+
+### 10.4 `apery version`
+
+Prints the injected build version. `apery --version` also works via Cobra.
+
+### 10.5 Exit codes
+
+From [`cmd/apery/main.go`](../cmd/apery/main.go):
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Plan or flag validation error |
+| 2 | Generation error |
+| 3 | I/O error (e.g., cannot create output file) |
+
+---
+
+## 11. Go Library API
+
+`run.go` is the public package surface.
+
+### Types
 
 ```go
-package main
+type (
+    Plan       = plan.Plan
+    EntitySpec = plan.EntitySpec
+    FieldSpec  = plan.FieldSpec
+    DrivenBy   = plan.DrivenBy
 
-import (
- "context"
- "log"
- "net/http"
- "os"
- "os/signal"
- "syscall"
- "time"
+    Writer     = writer.Writer
+    OrderedMap = writer.OrderedMap
 
- httpapi "sdg/internal/http"
+    Option = runtime.Option
+
+    GeneratorInfo = registry.GeneratorInfo
+    ConfigKey     = registry.ConfigKey
 )
-
-func main() {
- addr := getenv("SDG_HTTP_ADDR", ":8080")
-
- router := httpapi.NewRouter()
-
- srv := &http.Server{
-  Addr:         addr,
-  Handler:      router,
-  ReadTimeout:  30 * time.Second,
-  WriteTimeout: 30 * time.Second,
- }
-
- go func() {
-  log.Printf("sdg: listening on %s", addr)
-  if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-   log.Fatalf("sdg: server error: %v", err)
-  }
- }()
-
- // graceful shutdown
- sigCh := make(chan os.Signal, 1)
- signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
- <-sigCh
-
- ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
- defer cancel()
-
- log.Printf("sdg: shutting down...")
- if err := srv.Shutdown(ctx); err != nil {
-  log.Printf("sdg: shutdown error: %v", err)
- }
-}
-
-func getenv(key, def string) string {
- if v := os.Getenv(key); v != "" {
-  return v
- }
- return def
-}
 ```
 
-### 2. internal/plan/plan.go
+### Functions
 
 ```go
-package plan
+func LoadPlanFile(path string) (*Plan, error)
+func ValidatePlan(p *Plan) error
+func ListGenerators() []GeneratorInfo
 
-// Plan represents a full generation request.
-type Plan struct {
- Seed     int64        `json:"seed"`
- Entities []EntitySpec `json:"entities"`
- Output   OutputSpec   `json:"output"`
-}
+func NewJSONLWriter(path string)           (*writer.JSONLWriter, error)
+func NewCSVWriter(path string)             (*writer.CSVWriter, error)
+func NewJSONLWriterFromWriter(w io.Writer) *writer.JSONLWriter
+func NewCSVWriterFromWriter(w io.Writer)   *writer.CSVWriter
+func NewSplitWriter(dir, format string)    *writer.SplitWriter
 
-type EntitySpec struct {
- Name    string       `json:"name"`
- Count   int64        `json:"count"`
- Fields  []FieldSpec  `json:"fields"`
- Indexes [][]string   `json:"indexes,omitempty"`
- Rels    []Relation   `json:"rels,omitempty"`
-}
+func WithLogger(l *slog.Logger) Option
+func WithWorkers(n int)         Option
+func WithChunkSize(n int64)     Option
 
-type FieldSpec struct {
- Name      string                 `json:"name"`
- Kind      string                 `json:"kind"`
- Gen       string                 `json:"gen"`
- Config    map[string]any         `json:"config,omitempty"`
- Unique    bool                   `json:"unique,omitempty"`
- Nullable  float64                `json:"nullable,omitempty"`
- DependsOn []string               `json:"dependsOn,omitempty"`
- Meta      map[string]interface{} `json:"meta,omitempty"`
-}
-
-type Relation struct {
- Field       string             `json:"field"`
- Target      string             `json:"target"`
- Cardinality string             `json:"cardinality"`
- Dist        string             `json:"dist"`
- Weights     map[string]float64 `json:"weights,omitempty"`
-}
-
-type OutputSpec struct {
- Format string             `json:"format"`
- File   string             `json:"file,omitempty"`
- Sample int                `json:"sample,omitempty"`
- Splits map[string]float64 `json:"splits,omitempty"`
-}
+func Run(ctx context.Context, p *Plan, w Writer, opts ...Option) error
 ```
 
-### 3. internal/plan/validate.go
+### Example
 
 ```go
-package plan
+import "github.com/compuficial/apery"
 
-import (
- "errors"
- "fmt"
+p, err := apery.LoadPlanFile("plan.yaml")
+if err != nil { return err }
+
+w, err := apery.NewJSONLWriter("out.jsonl")
+if err != nil { return err }
+defer w.Close()
+
+return apery.Run(ctx, p, w,
+    apery.WithWorkers(8),
+    apery.WithChunkSize(100_000),
 )
+```
 
-func Validate(p *Plan) error {
- if len(p.Entities) == 0 {
-  return errors.New("plan: no entities defined")
- }
- if p.Output.Format == "" {
-  p.Output.Format = "JSONL"
- }
+---
 
- entityNames := make(map[string]struct{}, len(p.Entities))
- for i := range p.Entities {
-  e := &p.Entities[i]
-  if e.Name == "" {
-   return fmt.Errorf("plan: entity[%d]: missing name", i)
-  }
-  if e.Count <= 0 {
-   return fmt.Errorf("plan: entity[%s]: count must be > 0", e.Name)
-  }
-  if _, dup := entityNames[e.Name]; dup {
-   return fmt.Errorf("plan: duplicate entity name: %s", e.Name)
-  }
-  entityNames[e.Name] = struct{}{}
-  if err := validateEntity(e); err != nil {
-   return err
-  }
- }
+## 12. Extensibility: Adding a Generator
 
- for _, e := range p.Entities {
-  for _, r := range e.Rels {
-   if _, ok := entityNames[r.Target]; !ok {
-    return fmt.Errorf("plan: entity[%s].rels: target %q not found", e.Name, r.Target)
+1. Create a file in `internal/registry/`, e.g. `mygen.go`.
+2. Implement the `Generator` interface:
+   ```go
+   type MyGenerator struct { /* ... */ }
+
+   func (g *MyGenerator) Next(r *rng.Rng) (any, error) { /* ... */ }
+   ```
+3. Register in an `init()`:
+   ```go
+   func init() {
+       MustRegister("mygen", func(config map[string]any) (Generator, error) {
+           // validate config, build generator
+           return &MyGenerator{/* ... */}, nil
+       })
+       MustRegisterInfo("mygen", GeneratorInfo{ /* description, keys, example */ })
    }
-  }
- }
-
- return nil
-}
-
-func validateEntity(e *EntitySpec) error {
- if len(e.Fields) == 0 {
-  return fmt.Errorf("plan: entity[%s]: no fields defined", e.Name)
- }
- fieldNames := make(map[string]struct{}, len(e.Fields))
- for i := range e.Fields {
-  f := &e.Fields[i]
-  if f.Name == "" {
-   return fmt.Errorf("plan: entity[%s].fields[%d]: missing name", e.Name, i)
-  }
-  if f.Gen == "" {
-   return fmt.Errorf("plan: entity[%s].fields[%s]: missing gen", e.Name, f.Name)
-  }
-  if _, dup := fieldNames[f.Name]; dup {
-   return fmt.Errorf("plan: entity[%s]: duplicate field %q", e.Name, f.Name)
-  }
-  fieldNames[f.Name] = struct{}{}
- }
- return nil
-}
-```
-
-### 4. internal/registry/registry.go
-
-```go
-package registry
-
-import (
- "fmt"
- "sync"
-
- "sdg/internal/plan"
- "sdg/internal/rng"
-)
-
-type Context struct {
- Entity   string
- Field    string
- RowIndex int64
- State    map[string]any
- Rng      *rng.Rng
-}
-
-type Generator interface {
- Next(*Context) (any, error)
-}
-
-type Factory func(spec plan.FieldSpec) (Generator, error)
-
-var (
- mu       sync.RWMutex
- registry = make(map[string]Factory)
-)
-
-func Register(name string, f Factory) {
- mu.Lock()
- defer mu.Unlock()
- if _, ok := registry[name]; ok {
-  panic("registry: duplicate generator: " + name)
- }
- registry[name] = f
-}
-
-func Get(name string) (Factory, error) {
- mu.RLock()
- defer mu.RUnlock()
- f, ok := registry[name]
- if !ok {
-  return nil, fmt.Errorf("registry: generator %q not found", name)
- }
- return f, nil
-}
-
-func List() []string {
- mu.RLock()
- defer mu.RUnlock()
- out := make([]string, 0, len(registry))
- for k := range registry {
-  out = append(out, k)
- }
- return out
-}
-```
-
-### 5. internal/registry/builtins.go
-
-```go
-package registry
-
-import (
- "fmt"
- "math"
- "strings"
-
- "sdg/internal/plan"
-)
-
-type GenFunc func(*Context) (any, error)
-
-func (f GenFunc) Next(ctx *Context) (any, error) { return f(ctx) }
-
-func RegisterBuiltins() {
- Register("uniform_int", uniformIntFactory)
- Register("bool", boolFactory)
- Register("template", templateFactory)
- Register("pick", pickFactory)
-}
-
-func uniformIntFactory(spec plan.FieldSpec) (Generator, error) {
- cfg := spec.Config
- min, ok := cfg["min"].(float64)
- if !ok {
-  return nil, fmt.Errorf("uniform_int: config.min required")
- }
- max, ok := cfg["max"].(float64)
- if !ok {
-  return nil, fmt.Errorf("uniform_int: config.max required")
- }
- if max < min {
-  return nil, fmt.Errorf("uniform_int: max < min")
- }
- return GenFunc(func(c *Context) (any, error) {
-  n := c.Rng.Int63n(int64(max-min+1)) + int64(min)
-  return n, nil
- }), nil
-}
-
-func boolFactory(spec plan.FieldSpec) (Generator, error) {
- p := 0.5
- if v, ok := spec.Config["p"].(float64); ok {
-  p = v
- }
- if p <= 0 || p >= 1 {
-  return nil, fmt.Errorf("bool: p must be in (0,1)")
- }
- return GenFunc(func(c *Context) (any, error) {
-  return c.Rng.Float64() < p, nil
- }), nil
-}
-
-func templateFactory(spec plan.FieldSpec) (Generator, error) {
- raw, ok := spec.Config["tpl"].(string)
- if !ok {
-  return nil, fmt.Errorf("template: config.tpl required")
- }
- lower := false
- if v, ok := spec.Config["lower"].(bool); ok {
-  lower = v
- }
- return GenFunc(func(c *Context) (any, error) {
-  out := raw
-  for k, v := range c.State {
-   placeholder := "{{" + k + "}}"
-   out = strings.ReplaceAll(out, placeholder, fmt.Sprint(v))
-  }
-  if lower {
-   out = strings.ToLower(out)
-  }
-  return out, nil
- }), nil
-}
-
-func pickFactory(spec plan.FieldSpec) (Generator, error) {
- values, ok := spec.Config["values"].([]any)
- if !ok || len(values) == 0 {
-  return nil, fmt.Errorf("pick: config.values must be non-empty array")
- }
- return GenFunc(func(c *Context) (any, error) {
-  i := c.Rng.Int63n(int64(len(values)))
-  return values[i], nil
- }), nil
-}
-
-func clamp(v, lo, hi int) int {
- return int(math.Max(float64(lo), math.Min(float64(hi), float64(v))))
-}
-```
-
-### 6. internal/catalog/catalog.go
-
-```go
-package catalog
-
-import (
- "bufio"
- "fmt"
- "math/rand"
- "os"
- "sync"
-)
-
-type Item struct {
- Value  any
- Weight float64
-}
-
-type Catalog struct {
- Name  string
- Items []Item
- prob  []float64
- alias []int
-}
-
-var (
- mu       sync.RWMutex
- catalogs = make(map[string]*Catalog)
-)
-
-func LoadFromFile(name, path string) (*Catalog, error) {
- f, err := os.Open(path)
- if err != nil {
-  return nil, fmt.Errorf("catalog: open %s: %w", path, err)
- }
- defer f.Close()
-
- var items []Item
- sc := bufio.NewScanner(f)
- for sc.Scan() {
-  line := sc.Text()
-  if line == "" {
-   continue
-  }
-  items = append(items, Item{Value: line, Weight: 1})
- }
- if err := sc.Err(); err != nil {
-  return nil, fmt.Errorf("catalog: read %s: %w", path, err)
- }
- if len(items) == 0 {
-  return nil, fmt.Errorf("catalog: %s is empty", path)
- }
- c := &Catalog{Name: name, Items: items}
- c.buildAlias()
- return c, nil
-}
-
-func (c *Catalog) buildAlias() {
- n := len(c.Items)
- prob := make([]float64, n)
- alias := make([]int, n)
-
- sum := 0.0
- for _, it := range c.Items {
-  sum += it.Weight
- }
- scaled := make([]float64, n)
- for i, it := range c.Items {
-  scaled[i] = float64(n) * (it.Weight / sum)
- }
- var small, large []int
- for i, v := range scaled {
-  if v < 1.0 {
-   small = append(small, i)
-  } else {
-   large = append(large, i)
-  }
- }
- for len(small) > 0 && len(large) > 0 {
-  l := small[len(small)-1]
-  small = small[:len(small)-1]
-  g := large[len(large)-1]
-  large = large[:len(large)-1]
-
-  prob[l] = scaled[l]
-  alias[l] = g
-
-  scaled[g] = (scaled[g] + scaled[l]) - 1
-  if scaled[g] < 1 {
-   small = append(small, g)
-  } else {
-   large = append(large, g)
-  }
- }
- for _, i := range append(small, large...) {
-  prob[i] = 1
- }
- c.prob = prob
- c.alias = alias
-}
-
-func (c *Catalog) Sample(r *rand.Rand) any {
- n := len(c.Items)
- i := r.Intn(n)
- if r.Float64() < c.prob[i] {
-  return c.Items[i].Value
- }
- return c.Items[c.alias[i]].Value
-}
-
-func Get(name string) (*Catalog, bool) {
- mu.RLock()
- defer mu.RUnlock()
- c, ok := catalogs[name]
- return c, ok
-}
-
-func Register(c *Catalog) {
- mu.Lock()
- defer mu.Unlock()
- catalogs[c.Name] = c
-}
-```
-
-### 7. internal/rng/rng.go
-
-```go
-package rng
-
-import (
- "encoding/binary"
- "hash/fnv"
- "math/rand"
-)
-
-type Rng struct {
- r *rand.Rand
-}
-
-func New(seed int64) *Rng {
- return &Rng{r: rand.New(rand.NewSource(seed))}
-}
-
-func (r *Rng) Int63n(n int64) int64 { return r.r.Int63n(n) }
-func (r *Rng) Float64() float64    { return r.r.Float64() }
-func (r *Rng) Uint32() uint32      { return r.r.Uint32() }
-func (r *Rng) Intn(n int) int      { return r.r.Intn(n) }
-
-func Derive(parent int64, label string) int64 {
- h := fnv.New64a()
- var buf [8]byte
- binary.LittleEndian.PutUint64(buf[:], uint64(parent))
- h.Write(buf[:])
- h.Write([]byte(label))
- return int64(h.Sum64())
-}
-```
-
-### 9. internal/runtime/chunk.go
-
-```go
-package runtime
-
-type chunk struct {
- Start int64
- End   int64
-}
-
-func makeChunks(total int64, size int64) []chunk {
- if size <= 0 {
-  size = 50000
- }
- var chunks []chunk
- for start := int64(0); start < total; start += size {
-  end := start + size
-  if end > total {
-   end = total
-  }
-  chunks = append(chunks, chunk{Start: start, End: end})
- }
- return chunks
-}
-```
-
-### 10. internal/runtime/executor.go
-
-```go
-package runtime
-
-import (
- "context"
- "fmt"
- "runtime"
- "sync"
-
- "sdg/internal/plan"
- "sdg/internal/registry"
- "sdg/internal/rng"
- "sdg/internal/writer"
-)
-
-type Executor struct {
- rootSeed int64
- w        writer.Writer
-}
-
-func NewExecutor(seed int64, w writer.Writer) *Executor {
- return &Executor{rootSeed: seed, w: w}
-}
-
-func (e *Executor) Run(ctx context.Context, p *plan.Plan) error {
- for _, ent := range p.Entities {
-  if err := e.runEntity(ctx, &ent); err != nil {
-   return fmt.Errorf("executor: entity %s: %w", ent.Name, err)
-  }
- }
- if err := e.w.Close(); err != nil {
-  return fmt.Errorf("executor: writer close: %w", err)
- }
- return nil
-}
-
-func (e *Executor) runEntity(ctx context.Context, ent *plan.EntitySpec) error {
- seed := rng.Derive(e.rootSeed, "entity:"+ent.Name)
- entityRng := rng.New(seed)
-
- gens := make([]registry.Generator, len(ent.Fields))
- for i, f := range ent.Fields {
-  factory, err := registry.Get(f.Gen)
-  if err != nil {
-   return fmt.Errorf("bind field %s: %w", f.Name, err)
-  }
-  gen, err := factory(f)
-  if err != nil {
-   return fmt.Errorf("build generator for %s: %w", f.Name, err)
-  }
-  gens[i] = gen
- }
-
- numCPU := runtime.NumCPU()
- workers := numCPU * 2
- if workers < 1 {
-  workers = 1
- }
-
- chunks := makeChunks(ent.Count, 50000)
- chCh := make(chan chunk, len(chunks))
- errCh := make(chan error, workers)
- var wg sync.WaitGroup
-
- for _, c := range chunks {
-  chCh <- c
- }
- close(chCh)
-
- for i := 0; i < workers; i++ {
-  wg.Add(1)
-  go func(workerID int) {
-   defer wg.Done()
-   for c := range chCh {
-    if err := e.runChunk(ctx, ent, entityRng, gens, c); err != nil {
-     select {
-     case errCh <- err:
-     default:
-     }
-     return
-    }
-   }
-  }(i)
- }
-
- wg.Wait()
- select {
- case err := <-errCh:
-  return err
- default:
-  return nil
- }
-}
-
-func (e *Executor) runChunk(
- ctx context.Context,
- ent *plan.EntitySpec,
- entityRng *rng.Rng,
- gens []registry.Generator,
- ch chunk,
-) error {
- for row := ch.Start; row < ch.End; row++ {
-  select {
-  case <-ctx.Done():
-   return ctx.Err()
-  default:
-  }
-  rowState := make(map[string]any, len(ent.Fields))
-  record := make(map[string]any, len(ent.Fields))
-
-  for i, f := range ent.Fields {
-   fieldSeed := rng.Derive(int64(entityRng.Uint32()), "field:"+f.Name)
-   r := rng.New(rng.Derive(fieldSeed, fmt.Sprintf("row:%d", row)))
-   ctxGen := &registry.Context{
-    Entity:   ent.Name,
-    Field:    f.Name,
-    RowIndex: row,
-    State:    rowState,
-    Rng:      r,
-   }
-   val, err := gens[i].Next(ctxGen)
-   if err != nil {
-    return fmt.Errorf("row %d field %s: %w", row, f.Name, err)
-   }
-   rowState[f.Name] = val
-   record[f.Name] = val
-  }
-
-  if err := e.w.WriteRecord(ent.Name, record); err != nil {
-   return fmt.Errorf("writer: %w", err)
-  }
- }
- return nil
-}
-```
-
-### 11. internal/writer/writer.go
-
-```go
-package writer
-
-type Writer interface {
- WriteRecord(entity string, record map[string]any) error
- Close() error
-}
-```
-
-### 12. internal/writer/jsonl.go
-
-```go
-package writer
-
-import (
- "bufio"
- "encoding/json"
- "fmt"
- "io"
- "os"
-)
-
-type JSONLWriter struct {
- out     io.WriteCloser
- buf     *bufio.Writer
- closeFn func() error
-}
-
-func NewJSONLFileWriter(path string) (*JSONLWriter, error) {
- f, err := os.Create(path)
- if err != nil {
-  return nil, fmt.Errorf("jsonl: create %s: %w", path, err)
- }
- w := bufio.NewWriter(f)
- return &JSONLWriter{
-  out: f,
-  buf: w,
-  closeFn: func() error {
-   if err := w.Flush(); err != nil {
-    return err
-   }
-   return f.Close()
-  },
- }, nil
-}
-
-func (w *JSONLWriter) WriteRecord(entity string, record map[string]any) error {
- record["_entity"] = entity
- b, err := json.Marshal(record)
- if err != nil {
-  return fmt.Errorf("jsonl: marshal: %w", err)
- }
- if _, err := w.buf.Write(b); err != nil {
-  return fmt.Errorf("jsonl: write: %w", err)
- }
- if err := w.buf.WriteByte('\n'); err != nil {
-  return fmt.Errorf("jsonl: newline: %w", err)
- }
- return nil
-}
-
-func (w *JSONLWriter) Close() error {
- if w.closeFn != nil {
-  return w.closeFn()
- }
- return nil
-}
-```
-
-### 13. internal/writer/csv.go
-
-```go
-package writer
-
-import (
- "encoding/csv"
- "fmt"
- "os"
- "sort"
-)
-
-type CSVWriter struct {
- file  *os.File
- w     *csv.Writer
- keys  []string
- initd bool
-}
-
-func NewCSVFileWriter(path string) (*CSVWriter, error) {
- f, err := os.Create(path)
- if err != nil {
-  return nil, fmt.Errorf("csv: create %s: %w", path, err)
- }
- return &CSVWriter{file: f, w: csv.NewWriter(f)}, nil
-}
-
-func (w *CSVWriter) WriteRecord(entity string, record map[string]any) error {
- if !w.initd {
-  keys := make([]string, 0, len(record))
-  for k := range record {
-   if k == "_entity" {
-    continue
-   }
-   keys = append(keys, k)
-  }
-  sort.Strings(keys)
-  w.keys = keys
-  if err := w.w.Write(keys); err != nil {
-   return fmt.Errorf("csv: header: %w", err)
-  }
-  w.initd = true
- }
-
- row := make([]string, len(w.keys))
- for i, k := range w.keys {
-  v := record[k]
-  if v == nil {
-   row[i] = ""
-  } else {
-   row[i] = fmt.Sprint(v)
-  }
- }
- if err := w.w.Write(row); err != nil {
-  return fmt.Errorf("csv: write: %w", err)
- }
- return nil
-}
-
-func (w *CSVWriter) Close() error {
- w.w.Flush()
- if err := w.w.Error(); err != nil {
-  return fmt.Errorf("csv: flush: %w", err)
- }
- return w.file.Close()
-}
-```
-
-### 14. internal/http/server.go
-
-```go
-package httpapi
-
-import (
- "net/http"
-
- "github.com/99designs/gqlgen/graphql/handler"
- "github.com/99designs/gqlgen/graphql/playground"
-
- "sdg/internal/http/generated"
-)
-
-func NewRouter() http.Handler {
- mux := http.NewServeMux()
-
- srv := handler.NewDefaultServer(generated.NewExecutableSchema(
-  generated.Config{Resolvers: &Resolver{}},
- ))
-
- mux.Handle("/query", srv)
- mux.Handle("/", playground.Handler("GraphQL playground", "/query"))
-
- mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-  w.WriteHeader(http.StatusOK)
-  _, _ = w.Write([]byte("ok"))
- })
-
- return mux
-}
-```
-
-### 15. internal/http/resolvers.go (skeleton)
-
-```go
-package httpapi
-
-import (
- "context"
- "fmt"
-
- "sdg/internal/plan"
- "sdg/internal/registry"
- "sdg/internal/runtime"
- "sdg/internal/writer"
- "sdg/internal/http/generated"
-)
-
-type Resolver struct{}
-
-type mutationResolver struct{ *Resolver }
-type queryResolver struct{ *Resolver }
-
-func (r *Resolver) Mutation() generated.MutationResolver { return &mutationResolver{r} }
-func (r *Resolver) Query() generated.QueryResolver       { return &queryResolver{r} }
-
-func (r *mutationResolver) Generate(ctx context.Context, input generated.PlanInput) (*generated.GenerateResult, error) {
- p := convertPlanInput(input)
-
- if err := plan.Validate(&p); err != nil {
-  return nil, fmt.Errorf("validate plan: %w", err)
- }
-
- w, err := writer.NewJSONLFileWriter("out.jsonl")
- if err != nil {
-  return nil, fmt.Errorf("writer: %w", err)
- }
-
- registry.RegisterBuiltins()
-
- ex := runtime.NewExecutor(p.Seed, w)
- if err := ex.Run(ctx, &p); err != nil {
-  return nil, err
- }
-
- return &generated.GenerateResult{
-  Ok:    true,
-  Files: []string{"out.jsonl"},
- }, nil
-}
-
-func (r *queryResolver) Generators(ctx context.Context) ([]string, error) {
- return registry.List(), nil
-}
-
-func convertPlanInput(in generated.PlanInput) plan.Plan {
- p := plan.Plan{Seed: int64(in.Seed)}
- for _, e := range in.Entities {
-  var ent plan.EntitySpec
-  ent.Name = e.Name
-  ent.Count = int64(e.Count)
-  for _, f := range e.Fields {
-   ent.Fields = append(ent.Fields, plan.FieldSpec{
-    Name:      f.Name,
-    Kind:      string(f.Kind),
-    Gen:       f.Gen,
-    Config:    f.Config,
-    Unique:    boolFromPtr(f.Unique),
-    Nullable:  floatFromPtr(f.Nullable),
-    DependsOn: f.DependsOn,
-   })
-  }
-  p.Entities = append(p.Entities, ent)
- }
- if in.Output != nil {
-  p.Output = plan.OutputSpec{
-   Format: string(in.Output.Format),
-   File:   in.Output.File,
-   Sample: int(in.Output.Sample),
-  }
- }
- return p
-}
-
-func boolFromPtr(v *bool) bool {
- if v == nil {
-  return false
- }
- return *v
-}
-
-func floatFromPtr(v *float64) float64 {
- if v == nil {
-  return 0
- }
- return *v
-}
-```
-
-### 16. pkg/sdg/sdg.go
-
-```go
-package sdg
-
-import (
- "context"
-
- "sdg/internal/plan"
- "sdg/internal/registry"
- "sdg/internal/runtime"
- "sdg/internal/writer"
-)
-
-type GenerateOptions struct {
- Writer writer.Writer
-}
-
-func Generate(ctx context.Context, p *plan.Plan, opts GenerateOptions) error {
- if err := plan.Validate(p); err != nil {
-  return err
- }
- registry.RegisterBuiltins()
- w := opts.Writer
- ex := runtime.NewExecutor(p.Seed, w)
- return ex.Run(ctx, p)
-}
-```
+   ```
+4. Add a field using the new generator to the appropriate canonical plan in [`internal/runtime/determinism_helpers_test.go`](../internal/runtime/determinism_helpers_test.go) (scalar, composite, row-aware, or relational). If the generator doesn't fit any existing category, add a new canonical plan to the `canonicalPlans` slice.
+5. Regenerate golden files:
+   ```
+   go test ./internal/runtime -run TestGolden -update -v
+   ```
+6. Review the golden diff; commit the generator, metadata, and golden update together.
+
+Determinism is the contract. Any new generator must be pure in the seed it is given — no hidden globals, no `time.Now`, no environment reads.
 
 ---
 
-## GraphQL Schema (graph/schema.graphqls)
-
-```graphql
-scalar JSON
-scalar BigInt
-
-enum OutputFormat {
-  JSONL
-  CSV
-  PARQUET
-  SQL_DUMP
-  SFTJSONL
-  DPO_PAIRS
-  CHAT
-  TOOL_TRACE
-  RAG_TRIPLE
-}
-
-enum Cardinality {
-  MANY_TO_ONE
-  ONE_TO_MANY
-  MANY_TO_MANY
-}
-
-enum Dist {
-  UNIFORM
-  WEIGHTED
-}
-
-enum FieldKind {
-  STRING
-  INT
-  FLOAT
-  BOOL
-  TIME
-  UUID
-  JSONB
-}
-
-input FieldInput {
-  name: String!
-  kind: FieldKind!
-  gen: String!
-  config: JSON
-  unique: Boolean
-  nullable: Float
-  dependsOn: [String!]
-}
-
-input RelationInput {
-  field: String!
-  target: String!
-  cardinality: Cardinality!
-  dist: Dist = UNIFORM
-  weights: JSON
-}
-
-input EntityInput {
-  name: String!
-  count: BigInt!
-  fields: [FieldInput!]!
-  indexes: [[String!]]
-  rels: [RelationInput!]
-}
-
-input OutputInput {
-  format: OutputFormat = JSONL
-  file: String
-  sample: Int
-  splits: JSON
-}
-
-input PlanInput {
-  seed: BigInt!
-  entities: [EntityInput!]!
-  output: OutputInput
-}
-
-type Row {
-  json: JSON!
-}
-
-type GenerateResult {
-  ok: Boolean!
-  sample: [[Row!]!]
-  files: [String!]!
-  stats: JSON
-}
-
-type DryRunResult {
-  ok: Boolean!
-  warnings: [String!]!
-  estimates: JSON
-}
-
-type Query {
-  generators: [String!]!
-  catalogs: [String!]!
-}
-
-type Mutation {
-  generate(plan: PlanInput!): GenerateResult!
-  dryRun(plan: PlanInput!): DryRunResult!
-}
-```
-
----
-
-## 12. MCP + Tooling Integration
-
-### 12.1 MCP Resources
-
-The SDG exposes MCP resources so assistants can mount the generator directly into their context window:
-
-| Resource | URI | Description |
-|----------|-----|-------------|
-| `sdg://catalogs/*` | catalogs list/detail | Enumerates catalog metadata, sample rows, and provenance. |
-| `sdg://plans/*` | plan templates | Ready-made plan snippets (retail, health, chat, RAG, etc.). |
-| `sdg://outputs/*` | latest outputs | Signed URLs or file handles for generated datasets. |
-
-Resources are backed by the same storage layer as writers. Every resource response includes `version`, `seed`, and `plan_hash` so LLM clients can ensure determinism.
-
-### 12.2 MCP Tools
-
-Besides the GraphQL API, MCP exposes structured tools aligned with the agent workflow:
-
-* `sdg.generate_data(plan: JSON, format?: string, sample?: int)` — synchronous generation with optional streaming chunk responses.
-* `sdg.compile_plan(prompt: string, context?: JSON)` — runs the NL plan compiler and returns both the plan and a confidence/explanation block.
-* `sdg.validate_plan(plan: JSON)` — lightweight validation for speculative edits.
-* `sdg.list_generators()` / `sdg.list_catalogs()` — mirrors GraphQL but optimized for small context windows.
-
-Tools stream incremental status (`queued → compiling → running → writing → complete`). Errors always include `category` (validation/runtime/writer/network) for better agent recovery.
-
-### 12.3 Session + Auth Model
-
-* **API Tokens**: short-lived tokens with scopes (`generate`, `catalog:write`, `admin`).
-* **MCP Sessions**: each agent session negotiates a capability set; generation runs in isolated sandboxes with configurable CPU/RAM limits.
-* **Rate Limits**: per-token concurrency plus global backpressure; metadata returned in `Retry-After`.
-
-### 12.4 Agent Patterns
-
-1. Agent receives human prompt → calls `compile_plan`.
-2. Agent presents plan summary to user, possibly editing via natural language.
-3. Agent calls `validate_plan` until clean.
-4. Agent triggers `generate_data` with `sample` for preview rows.
-5. Once approved, agent requests full generation and fetches artifacts via MCP resource handles.
-
-All responses are deliberately compact so they fit inside typical LLM context budgets.
-
----
-
-## 13. Natural-Language Plan Compiler Implementation
-
-### 13.1 Pipeline
-
-1. **Intent Classification**: Distinguish dataset families (transactions, chat, telemetry, medical, etc.). Implemented via small fine-tuned model or heuristic classifier.
-2. **Schema Retrieval**: For each intent, load schema templates from `/internal/compiler/templates`. Templates include entity graphs, field hints, and generator suggestions.
-3. **Slot Filling**: Run an LLM (GPT-4o or local) with a structured prompt that fills JSON slots: entity counts, field descriptions, relations, catalogs, required distributions.
-4. **Generator Selection**: Translate slot metadata into concrete generator specs using declarative rules (e.g., numeric + range → `uniform_int`; categorical + list → `pick`).
-5. **Constraint Inference**: Detect uniqueness, foreign keys, and cardinality from natural language (“each user has many sessions”).
-6. **Validation + Repair**: Call `plan.Validate`. For validation errors, emit `fixit` suggestions and optionally loop through an LLM patch step until clean or max retries reached.
-
-### 13.2 Prompt Hints
-
-* Provide generator catalog tables in the system prompt so the model references valid names.
-* Include examples of high-quality plans plus commentary to bias toward deterministic configs.
-* Use function calling to force the LLM to emit JSON; schema is defined in `compiler/prompts/plan.json`.
-
-### 13.3 Confidence & Explanations
-
-The compiler returns `{plan, reasoning, confidence}`:
-
-* `reasoning` is a markdown bullet list of assumptions (e.g., “Assumed USD currency; adjust `currency` field if different”).
-* `confidence` is derived from validation passes and LLM self-evaluation.
-
-### 13.4 Offline Training Loop
-
-* Log user edits vs. initial plan; feed pairs back into fine-tune corpus.
-* Add automatic regression tests: run compiler on canonical prompts and diff generated plans (stored under `testdata/compiler/*.golden.json`).
-
----
-
-## 14. Telemetry, Observability, and Governance
-
-### 14.1 Metrics
-
-Adopt OpenTelemetry:
-
-* `sdg_generation_duration_seconds{entity,format}`
-* `sdg_rows_generated_total{entity}`
-* `sdg_generator_error_total{name,category}`
-* `sdg_plan_validation_fail_total{reason}`
-
-Metrics exported via Prometheus endpoint (`/metrics`) and aggregated per tenant.
-
-### 14.2 Tracing
-
-Wrap major phases (plan validation, catalog load, chunk execution, writer flush). Each span carries `seed` and `plan_hash`. This is crucial when investigating mismatched deterministic outputs.
-
-### 14.3 Logging
-
-Structured logs (JSON) with fields: `level`, `ts`, `component`, `seed`, `plan_hash`, `entity`, `chunk`. Sensitive catalog contents are redacted via hash digests.
-
-### 14.4 Auditing
-
-Keep an append-only audit trail for plan submissions and catalog mutations. Entries reference the authenticated user/agent, time, and diff summary. This allows enterprises to prove dataset lineage.
-
----
-
-## 15. Deployment & DevOps
-
-### 15.1 Binary + Container
-
-* Build static Go binary (`GOOS=linux GOARCH=amd64`) for `/cmd/sdg`.
-* Container image includes GraphQL server, MCP adapter, and CLI.
-* Use environment variables for config (`SDG_HTTP_ADDR`, `SDG_STORAGE_PATH`, `SDG_MAX_WORKERS`, `SDG_MCP_ENABLED`).
-
-### 15.2 Storage
-
-* **Local Mode**: write outputs to configurable directory; serve via MCP resource URIs.
-* **Cloud Mode**: plug a storage provider interface (S3/GCS/Azure). Writers stream directly to object storage using multipart uploads; URIs returned to clients.
-
-### 15.3 Scaling
-
-* Stateless API pods fronted by a load balancer.
-* Long-running generations are delegated to a worker queue (e.g., NATS, Redis, or Postgres LISTEN/NOTIFY) so GraphQL requests stay responsive. Workers pull jobs, run the executor, and post status updates.
-* Horizontal Pod Autoscaler keyed to CPU + queue depth.
-
-### 15.4 Configuration Bundles
-
-Provide Helm chart, Terraform modules, and Docker Compose templates under `/deploy/`. Standard observability sidecars (Prometheus, Loki) are included.
-
----
-
-## 16. Testing & Quality Assurance
-
-### 16.1 Determinism Tests
-
-* Property tests that run the same plan twice with identical seeds; assert byte-for-byte equality of outputs.
-* Concurrency stress tests that randomize worker counts/chunk sizes while comparing SHA-256 digests.
-
-### 16.2 Generator Unit Tests
-
-* Each primitive generator lives under `internal/registry/<name>_test.go`.
-* Use statistical tests (chi-square, KS) for distributional correctness when applicable.
-
-### 16.3 Integration Tests
-
-* GraphQL golden tests (`graph/tests/*.graphql`) verifying queries, mutations, and error shapes.
-* MCP end-to-end tests using a mock agent that compiles a plan, validates, and generates sample rows.
-
-### 16.4 Catalog Tests
-
-* Validate alias table build by comparing sampled frequencies against weights.
-* Fuzz tests on catalog loaders to ensure malformed files/URLs are rejected gracefully.
-
-### 16.5 Plan Compiler Regression
-
-* Keep curated prompts and desired plan outputs in `testdata/compiler`.
-* Run nightly pipeline that regenerates plans and diffs them; review deviations for drift.
-
----
-
-## 17. Security, Privacy, and Compliance
-
-* **Sandboxing**: Generation workers run in cgroups with restricted filesystem/network access; catalog uploads validated against allowlists to prevent SSRF.
-* **Secrets Management**: External catalog fetchers use scoped credentials stored in Vault or AWS Secrets Manager.
-* **Data Classification**: Catalog metadata tracks origin (`public`, `proprietary`, `llm-synthesized`). Policies enforce which tenants may access which catalogs.
-* **PII Guardrails**: Because SDG can mimic real-world data, add automated scanners that flag catalog values matching real PII (hash-based detection, dictionary checks).
-* **Compliance Hooks**: Audit logs integrate with SOC2 / ISO27001 evidence collection; provide signed plan/output manifest for reproducibility.
-
----
-
-## 18. Performance & Scaling Guidance
-
-* **Chunk Size Tuning**: default 50k rows; adapt dynamically based on field complexity (e.g., heavy expressions -> smaller chunks).
-* **RNG Choice**: implement SplitMix64/PCG with per-chunk derivation to avoid contention and guarantee determinism regardless of worker scheduling.
-* **Memory Layout**: Reuse buffers in writers, preallocate `record` maps using `make(map[string]any, len(fields))`.
-* **Catalog Caching**: Keep hot catalogs in memory with ARC/LRU, but cap memory by evicting least-recently-used ones; cold catalogs stream from storage.
-* **Benchmark Suite**: `benchmarks/*` includes Go benchmarks generating millions of rows for canonical schemas. Record baseline throughput (rows/sec) per schema and hardware tier.
-
----
-
-## 19. Roadmap
-
-1. **Phase 1 – Core MVP**
-   * Complete RNG rewrite, full primitive set, CSV/JSONL writers, GraphQL + MCP parity.
-2. **Phase 2 – Advanced Outputs**
-   * Add SFT/chat/tool-trace writers, train/val/test splits, cloud storage connectors.
-3. **Phase 3 – Intelligent Compiler**
-   * Fine-tune plan compiler, add active learning loop, expose user-facing plan diff UI.
-4. **Phase 4 – Ecosystem**
-   * Publish SDKs (Go, TypeScript, Python), integrate with LangChain/LlamaIndex, release catalog marketplace.
-5. **Phase 5 – Governance**
-   * Add dataset watermarking, lineage explorer UI, enterprise RBAC.
-
-Each phase ships with migration guides and deterministic regression suites to ensure existing workflows remain reproducible.
-
----
-
-## Appendix A. Agent-First Spec Draft (Merged)
-
-This section merges the previous agent-first spec into the main SDG spec.
-
-### A.1 Product Vision
-
-Apery is an agent-first synthetic data generator. It accepts explicit schema/plan specs and produces deterministic outputs. Agents (Codex, Claude, etc.) can call it via MCP or GraphQL to generate any data described by a plan.
-
-**Core Promise:** Plan + Seed + Version = Identical Output
-
-### A.2 Core Interface
-
-#### A.2.1 Plan-First Contract
-
-Agents provide a structured plan (no natural-language compilation in-core). A plan describes:
-
-- Seed
-- Entities (name, count)
-- Fields (name, generator, config)
-- Output options (format, splits)
-
-#### A.2.2 GraphQL API
-
-Minimum viable schema:
-
-```graphql
-type Query {
-  generators: [String!]!
-  catalogs: [String!]!
-  validatePlan(plan: JSON!): ValidationResult!
-}
-
-type Mutation {
-  runPlan(plan: JSON!, output: OutputSpec!): RunResult!
-}
-
-type OutputSpec {
-  format: OutputFormat!
-  splits: [SplitSpec!]
-}
-
-enum OutputFormat { JSONL CSV }
-
-type SplitSpec {
-  name: String!
-  ratio: Float!
-}
-
-type RunResult {
-  jobId: String!
-  outputs: [OutputLocation!]!
-}
-
-type OutputLocation {
-  name: String!
-  uri: String!
-}
-
-type ValidationResult {
-  ok: Boolean!
-  errors: [String!]!
-}
-```
-
-#### A.2.3 MCP Server
-
-Minimum viable tools:
-
-- `list_generators()`
-- `list_catalogs()`
-- `validate_plan(plan_json)`
-- `run_plan(plan_json, output_spec)`
-
-Responses return deterministic output locations or streamed data.
-
-### A.3 Determinism and Execution
-
-- Hierarchical seed derivation (root → entity → field → row).
-- Chunk-based execution for scalable deterministic generation.
-- Deterministic concurrency with per-chunk RNG derivation.
-- Regression tests compare output digests across versions.
-
-### A.4 Generator Surface
-
-#### A.4.1 Scalars
-
-- uniform_int(min,max)
-- uniform_float(min,max)
-- normal_float(mu,sigma)
-- normal_int(mu,sigma,clamp)
-- zipf(s,vmax)
-- bool(p)
-- regex(pattern) (supported subset; see Regex Generator Subset)
-- time(start,end,tz)
-- uuid_v4()
-- ulid()
-- seq(start,step)
-- pick(values|file|url)
-- pick(values|file|url, weights)
-- const(value)
-
-#### A.4.2 Composite
-
-- object(fields)
-- list(len|min_len+max_len, item)
-- sample(values|file|url, n|min_n+max_n)
-- one_of(gens,weights)
-- switch(key,cases)
-- template(tpl)
-
-#### A.4.3 Relational
-
-- rel_ref(target,field)
-- m2m(target,meanDegree)
-
-### A.5 Catalog Subsystem
-
-- Bundled catalogs (names, companies, domains, cities, products, words).
-- User catalogs via local file.
-- Remote catalogs via allowlisted URL.
-- Weighted alias tables, cached with ARC/LRU.
-
-### A.6 Writers and Output Modes
-
-- JSONL (streaming).
-- CSV.
-- Split modes: train/val/test.
-- Optional cloud storage outputs (S3/GCS/Azure).
-
-### A.7 Agent UX
-
-Agents should:
-
-1) Fetch available generators and catalogs.
-2) Construct a plan from a provided schema/spec.
-3) Validate the plan.
-4) Run the plan and read streaming output or output URIs.
-
-### A.8 Roadmap (Agent-First)
-
-#### Phase 1 - Core MVP
-
-- Deterministic execution engine
-- Full primitive generator set
-- JSONL + CSV writers
-- GraphQL + MCP parity
-
-#### Phase 2 - Advanced Outputs
-
-- SFT/chat/tool-trace writers
-- DPO/RLHF preference pairs
-- Train/val/test splits + cloud connectors
-
-#### Phase 3 - Ecosystem
-
-- SDKs (Go, TypeScript, Python)
-- LangChain/LlamaIndex integration
-- Catalog marketplace
-
-#### Phase 4 - Governance
-
-- Dataset watermarking
-- Lineage explorer UI
-- Enterprise RBAC
+## 13. Non-Goals
+
+Things Apery is deliberately **not**, so the scope doesn't drift:
+
+- No natural-language plan compiler. Plans are YAML or JSON, written by humans or emitted by agents.
+- No HTTP server, no GraphQL, no MCP server. The CLI is the interface.
+- No GUI.
+- No Parquet, SQL, or ML-training-format writers (SFT/DPO/RLHF). JSONL and CSV are the output formats.
+- No bundled catalogs of names / companies / addresses. Use `pick` with a `values`, `file`, or allowlisted `url` source.
+- No OpenTelemetry or distributed tracing. Observability is local stderr logging via `slog`.
+- No cross-version RNG compatibility. Seed output is stable within a released version; upgrading the RNG is a breaking change.
+- No data obfuscation, anonymization, or privacy guarantees. Apery generates synthetic data; it does not transform real data.

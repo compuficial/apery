@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Apery is a synthetic data generator (SDG) built in Go. It generates deterministic, schema-driven synthetic data using a declarative plan-based approach. The system is designed to be AI-friendly and supports various output formats.
+Apery is a synthetic data generator for agents built in Go. It generates deterministic, schema-driven synthetic data using a declarative plan-based approach. The system is designed to be AI-friendly and supports various output formats.
 
 ## Development Commands
 
 ### Build and Run
+
 ```bash
 # Build the project
 go build -o apery ./cmd/apery
@@ -21,6 +22,7 @@ go mod tidy  # Install/update dependencies
 ```
 
 ### Testing
+
 ```bash
 # Run all tests
 go test ./...
@@ -33,6 +35,7 @@ go test ./internal/registry
 ```
 
 ### Benchmarking
+
 ```bash
 # Run runtime executor benchmarks
 make bench
@@ -103,6 +106,7 @@ go test ./internal/runtime -run TestStress -v
 Critical design principle: **Plan + Seed = Reproducible Output**
 
 The seed derivation hierarchy:
+
 ```
 Root Seed (from Plan)
   └─> Entity Seed (derived from root + entity name/index)
@@ -119,12 +123,14 @@ See `internal/runtime/executor.go:44` for seed derivation and `internal/rng/rng.
 ### Generator Pattern
 
 All generators:
+
 - Implement `Generator` interface with `Next(*rng.Rng) (any, error)`
 - Auto-register via `init()` function
 - Accept configuration via `map[string]any`
 - Must be deterministic given the same RNG state
 
 Example from `internal/registry/pick.go`:
+
 ```go
 func init() {
     MustRegister("pick", func(config map[string]any) (Generator, error) {
@@ -147,6 +153,7 @@ Composite generators (e.g., `object`) instantiate sub-generators at factory time
 **M:N relationships** are composed from `driven_by` (1:M from left entity) + `rel_ref` with `unique: true` (M:1 to right entity) on a junction entity.
 
 Key design rules:
+
 - Entities must be declared in dependency order (downstream after upstream)
 - `DrivenBy.Min >= 1` (always produces at least one child per parent)
 - Config keys starting with `_` are reserved for internal use
@@ -187,13 +194,12 @@ The registry is global and thread-safe via init-time registration.
 
 ## Design Documents
 
-- `docs/spec-v2.md`: Current specification — CLI-first, agent-oriented, grounded in the actual codebase
-- `docs/spec.md`: Original aspirational spec (historical reference only — contains unplanned features like GraphQL, MCP, NLP compiler)
-- `docs/plan.md`: Implementation checklist tracking what's done and what's next
+- `docs/spec.md`: Canonical specification — architecture, plan schema, generator reference, execution model, CLI + library API
+- `docs/usage.md`: Practical CLI walkthrough with example plans
 
 ## Module Information
 
-- Module name: `apery`
+- Module name: `github.com/compuficial/apery`
 - Go version: 1.24.3
 - External dependencies:
   - `github.com/google/uuid` - UUID generation
@@ -204,11 +210,13 @@ The registry is global and thread-safe via init-time registration.
 ## Testing
 
 Tests follow a consistent pattern using shared helpers in `registry_test_helpers.go`:
+
 - `RunConfigTests()` - validates generator configuration
 - `RunDeterminismTests()` / `AssertDeterministic()` - verifies same seed produces same output
 - Generator-specific tests for format validation and distribution
 
 Run tests for a specific generator:
+
 ```bash
 go test -v ./internal/registry -run Bool
 go test -v ./internal/registry -run ULID

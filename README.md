@@ -83,7 +83,7 @@ $ apery generate -f plan.yaml | head -3
 | **Composable** | 20 generators that nest and combine. Objects, lists, templates, conditional dispatch. |
 | **Relational** | Foreign keys, 1:M parent-child, M:N junction tables. Zipf distributions for realistic skew. |
 | **Agent-first** | YAML/JSON plans, stdout piping, structured slog output, exit codes. No GUI, no server. |
-| **Zero config** | Single binary. No database, no runtime dependencies. `make install` and go. |
+| **Zero config** | Single binary. No database, no runtime dependencies. |
 
 ## Generators
 
@@ -261,7 +261,7 @@ $ apery generate -f plan.yaml --seed 42 | md5sum
 fc8756b572010e94b46afc81ecbe6a02  -
 ```
 
-Hierarchical seed derivation ensures identical output regardless of worker count or chunk size. See the [spec](docs/spec-v2.md) for the full seed derivation model.
+Hierarchical seed derivation ensures identical output regardless of worker count or chunk size. See the [spec](docs/spec.md) for the full seed derivation model.
 
 ## Go Library
 
@@ -279,18 +279,37 @@ apery.Run(ctx, p, w,
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    Plan([Plan<br/>YAML / JSON])
+    Registry[[Registry<br/>20 generators]]
+    Runtime[[Runtime<br/>chunked parallel executor]]
+    Writer[[Writer<br/>JSONL / CSV / split]]
+    Out([Records])
+
+    Plan --> Registry --> Runtime --> Writer --> Out
+    Seed([Seed]) -. derive .-> Runtime
 ```
-Plan (YAML/JSON) --> Validation --> Registry (20 Generators) --> Runtime (Parallel Executor) --> Writer (JSONL/CSV)
-                                         |                            |
-                                    GeneratorInfo               slog structured
-                                    (self-describing)            logging
+
+| Stage | Package | Responsibility |
+|-------|---------|----------------|
+| **Plan** | [`internal/plan`](internal/plan) | Load + validate YAML/JSON into entities, fields, and generator configs. |
+| **Registry** | [`internal/registry`](internal/registry) | Generator factory. Built-ins auto-register at init time; each is self-describing via `GeneratorInfo`. |
+| **Runtime** | [`internal/runtime`](internal/runtime) | Chunked parallel executor. Row-by-row generation with cross-entity column store for relational lookups. Structured `slog` logging. |
+| **Writer** | [`internal/writer`](internal/writer) | Streaming output: single JSONL/CSV file, stdout, or per-entity split files. |
+
+**Determinism is the core invariant.** Seeds cascade deterministically via FNV-1a derivation:
+
 ```
+root seed ─▶ entity ─▶ field ─▶ row ─▶ sub-field
+```
+
+Same plan + same seed = byte-identical output, regardless of worker count, platform, or run. See [`docs/spec.md`](docs/spec.md) for the full execution model.
 
 ## Documentation
 
-- **[Usage Guide](docs/usage.md)** — Full CLI walkthrough with example plans
-- **[Specification](docs/spec-v2.md)** — Architecture, generator reference, execution model
-- **[Implementation Checklist](docs/plan.md)** — What's done and what's next
+- **[Specification](docs/spec.md)** — Architecture, plan schema, generator reference, execution model
+- **[Usage Guide](docs/usage.md)** — Practical CLI walkthrough with example plans
 
 ## License
 

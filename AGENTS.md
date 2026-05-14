@@ -4,7 +4,7 @@ This file provides guidance to coding agents when working with code in this repo
 
 ## Project Overview
 
-Apery is a synthetic data generator (SDG) built in Go. It generates deterministic, schema-driven synthetic data using a declarative plan-based approach. The system is designed to be AI-friendly and supports various output formats.
+Apery is a synthetic data generator for agents built in Go. It generates deterministic, schema-driven synthetic data using a declarative plan-based approach. The software is designed to be AI-friendly and supports various output formats.
 
 ## Development Commands
 
@@ -150,11 +150,13 @@ The `spec.md` file contains the full specification and design philosophy. Key se
 ## Testing
 
 Tests follow a consistent pattern using shared helpers in `registry_test_helpers.go`:
+
 - `RunConfigTests()` - validates generator configuration
 - `RunDeterminismTests()` / `AssertDeterministic()` - verifies same seed produces same output
 - Generator-specific tests for format validation and distribution
 
 Run tests for a specific generator:
+
 ```bash
 go test -v ./internal/registry -run Bool
 go test -v ./internal/registry -run ULID
