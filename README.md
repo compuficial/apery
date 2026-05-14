@@ -15,9 +15,9 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
 
-Apery generates synthetic data from declarative plans. Same plan, same seed, same output — every time. 1M rows in under 2 seconds.
+Apery generates synthetic data from declarative plans. Same plan, same seed, same output — every time.
 
-AI agents are a first-class citizen. Silent stdout by default, structured logging, machine-parseable output, clean exit codes.
+AI agents are a first-class citizen. Logs go to stderr so stdout stays clean for piping. Structured slog output, machine-parseable JSONL/CSV, clean exit codes.
 
 ## Install
 
@@ -79,7 +79,7 @@ $ apery generate -f plan.yaml | head -3
 | | |
 |---|---|
 | **Deterministic** | `Plan + Seed = Identical Output`. Always. Across parallel workers, platforms, runs. |
-| **Fast** | 1M rows in ~1.6s with chunked parallel execution across all cores. |
+| **Fast** | Chunked parallel execution across all cores. See [Performance](#performance) for numbers. |
 | **Composable** | 20 generators that nest and combine. Objects, lists, templates, conditional dispatch. |
 | **Relational** | Foreign keys, 1:M parent-child, M:N junction tables. Zipf distributions for realistic skew. |
 | **Agent-first** | YAML/JSON plans, stdout piping, structured slog output, exit codes. No GUI, no server. |
@@ -250,7 +250,7 @@ $ time apery generate -f bench.yaml --workers 16 > /dev/null
 real    0m1.6s
 ```
 
-~600,000 rows/second on a modern desktop. Scales linearly with cores.
+Numbers depend heavily on plan shape (regex, `rel_ref`, composite generators are more expensive than scalar `seq`/`int`/`pick`) and whether output is piped to a file or a terminal. Run your own plan with `--workers $(nproc) > /dev/null` to get a representative number for your workload.
 
 ## Determinism
 
