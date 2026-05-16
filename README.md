@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/compuficial/apery/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/compuficial/apery/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
   <a href="https://github.com/compuficial/apery/releases"><img src="https://img.shields.io/github/v/release/compuficial/apery?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
-  <a href="https://discord.gg/apery"><img src="https://img.shields.io/discord/000000000000000000?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
+  <a href="https://discord.gg/VzMguQ73"><img src="https://img.shields.io/discord/1505255417121345717?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
 
@@ -21,15 +21,19 @@ AI agents are a first-class citizen. Logs go to stderr so stdout stays clean for
 
 ## Install
 
-**Pre-built binary** (Linux / macOS / Windows, amd64 / arm64):
+**One-liner** (Linux / macOS, amd64 / arm64):
 
 ```bash
-# Linux x86_64 — pick the asset for your platform from the releases page
-curl -L https://github.com/compuficial/apery/releases/latest/download/apery_<version>_linux_x86_64.tar.gz \
-  | tar xz -C /tmp && sudo mv /tmp/apery /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/install.sh | sh
 ```
 
-See [releases](https://github.com/compuficial/apery/releases) for all platforms.
+The script auto-detects OS/arch, fetches the latest stable release, and installs to `/usr/local/bin` (or `~/.local/bin` if `/usr/local/bin` isn't writable). To pin a specific version or install a pre-release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/install.sh | VERSION=v0.0.1-rc1 sh
+```
+
+**Manual download** — grab a tarball/zip from [releases](https://github.com/compuficial/apery/releases) (Linux, macOS, Windows; amd64 + arm64).
 
 **Go install** (requires Go 1.24+):
 
