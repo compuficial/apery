@@ -21,15 +21,19 @@ AI agents are a first-class citizen. Logs go to stderr so stdout stays clean for
 
 ## Install
 
-**Pre-built binary** (Linux / macOS / Windows, amd64 / arm64):
+**One-liner** (Linux / macOS, amd64 / arm64):
 
 ```bash
-# Linux x86_64 — pick the asset for your platform from the releases page
-curl -L https://github.com/compuficial/apery/releases/latest/download/apery_<version>_linux_x86_64.tar.gz \
-  | tar xz -C /tmp && sudo mv /tmp/apery /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/install.sh | sh
 ```
 
-See [releases](https://github.com/compuficial/apery/releases) for all platforms.
+The script auto-detects OS/arch, fetches the latest stable release, and installs to `/usr/local/bin` (or `~/.local/bin` if `/usr/local/bin` isn't writable). To pin a specific version or install a pre-release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/install.sh | VERSION=v0.0.1-rc1 sh
+```
+
+**Manual download** — grab a tarball/zip from [releases](https://github.com/compuficial/apery/releases) (Linux, macOS, Windows; amd64 + arm64).
 
 **Go install** (requires Go 1.24+):
 
