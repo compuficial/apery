@@ -72,3 +72,5 @@ release:
     name: apery
   draft: false
   prerelease: auto
+  extra_files:
+    - glob: install.sh
