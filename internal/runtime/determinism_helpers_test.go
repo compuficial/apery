@@ -141,6 +141,35 @@ var relationalPlan = plan.Plan{
 	},
 }
 
+// dependentPlan exercises cross-row dependent values (issue #1): exposed parent
+// columns, the child index, and the expr + date_offset generators. Count is
+// small so recognition rows land in the 10-line golden spot-check.
+var dependentPlan = plan.Plan{
+	Seed: goldenSeed,
+	Entities: []plan.EntitySpec{
+		{Name: "Subscription", Count: 6, Fields: []plan.FieldSpec{
+			{Name: "id", Gen: "seq"},
+			{Name: "start_date", Gen: "time", Config: map[string]any{
+				"start": "2024-01-01", "end": "2024-12-31", "format": "2006-01-02",
+			}},
+			{Name: "total", Gen: "int", Config: map[string]any{"min": 1200, "max": 120000}},
+		}},
+		{Name: "Recognition", DrivenBy: &plan.DrivenBy{
+			Entity: "Subscription", Field: "id", As: "subscription_id", Min: 12, Max: 12,
+			Expose: []plan.ParentField{
+				{Field: "start_date", As: "sub_start"},
+				{Field: "total", As: "sub_total"},
+			},
+			IndexAs: "event_index",
+		}, Fields: []plan.FieldSpec{
+			{Name: "recognized_at", Gen: "date_offset", Config: map[string]any{
+				"base": "{sub_start}", "amount": "{event_index}", "unit": "months", "format": "2006-01-02",
+			}},
+			{Name: "amount", Gen: "expr", Config: map[string]any{"expr": "{sub_total} / 12"}},
+		}},
+	},
+}
+
 // canonicalPlans is the ordered set of plans used by golden and stress tests.
 var canonicalPlans = []struct {
 	name string
@@ -150,6 +179,7 @@ var canonicalPlans = []struct {
 	{"composite", &compositePlan},
 	{"row_aware", &rowAwarePlan},
 	{"relational", &relationalPlan},
+	{"dependent", &dependentPlan},
 }
 
 // runPlanWithOpts runs a plan into a buffer and returns the raw JSONL output bytes.

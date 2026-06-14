@@ -11,18 +11,26 @@ import (
 	"github.com/compuficial/apery/internal/writer"
 )
 
+// parentInjection is a parent column auto-injected into every child row.
+// The first is the join key (As); the rest come from DrivenBy.Expose.
+type parentInjection struct {
+	as     string
+	values []any
+}
+
 // drivenByLayout holds the precomputed child counts and prefix sums
 // for a driven_by entity's two-phase execution.
 type drivenByLayout struct {
-	counts    []int64 // number of children per parent
-	prefixSum []int64 // prefixSum[i] = total rows before parent i
-	total     int64   // total child rows across all parents
-	parentCol []any   // parent field values to inject
+	counts     []int64           // number of children per parent
+	prefixSum  []int64           // prefixSum[i] = total rows before parent i
+	total      int64             // total child rows across all parents
+	injections []parentInjection // parent columns to inject (join key first)
 }
 
 // computeDrivenByLayout runs Phase 1: determines child counts per parent.
-func computeDrivenByLayout(entitySeed rng.Seed, db *plan.DrivenBy, parentValues []any) *drivenByLayout {
-	n := int64(len(parentValues))
+// The parent count comes from the first injection (the join key).
+func computeDrivenByLayout(entitySeed rng.Seed, db *plan.DrivenBy, injections []parentInjection) *drivenByLayout {
+	n := int64(len(injections[0].values)) // injections[0] is the join key: one value per parent
 	counts := make([]int64, n)
 	prefixSum := make([]int64, n)
 	var total int64
@@ -41,10 +49,10 @@ func computeDrivenByLayout(entitySeed rng.Seed, db *plan.DrivenBy, parentValues 
 	}
 
 	return &drivenByLayout{
-		counts:    counts,
-		prefixSum: prefixSum,
-		total:     total,
-		parentCol: parentValues,
+		counts:     counts,
+		prefixSum:  prefixSum,
+		total:      total,
+		injections: injections,
 	}
 }
 
@@ -100,12 +108,18 @@ func (e *Executor) runDrivenByEntity(ctx context.Context, seed int64, entityInde
 	db := entity.DrivenBy
 	entitySeed := rng.Derive(rng.SeedFromInt64(seed), fmt.Sprintf("%s[%d]", entity.Name, entityIndex))
 
-	parentCol, ok := store.GetColumn(db.Entity, db.Field)
-	if !ok {
-		return nil, fmt.Errorf("driven_by: column %s.%s not found in store", db.Entity, db.Field)
+	// Injected columns: the join key first, then Expose fields in declared order.
+	refs := append([]plan.ParentField{{Field: db.Field, As: db.As}}, db.Expose...)
+	injections := make([]parentInjection, 0, len(refs))
+	for _, ref := range refs {
+		col, ok := store.GetColumn(db.Entity, ref.Field)
+		if !ok {
+			return nil, fmt.Errorf("driven_by: column %s.%s not found in store", db.Entity, ref.Field)
+		}
+		injections = append(injections, parentInjection{as: ref.ChildName(), values: col})
 	}
 
-	layout := computeDrivenByLayout(entitySeed, db, parentCol)
+	layout := computeDrivenByLayout(entitySeed, db, injections)
 	if layout.total == 0 {
 		return nil, nil
 	}
@@ -172,8 +186,14 @@ func (e *Executor) runDrivenByChunk(ctx context.Context, entity *plan.EntitySpec
 		}
 
 		record := writer.NewOrderedMap()
-		// Inject parent value as first field.
-		record.Set(db.As, layout.parentCol[parentIdx])
+		// Inject parent columns before fields so row-aware generators can read them.
+		for _, inj := range layout.injections {
+			record.Set(inj.as, inj.values[parentIdx])
+		}
+		// 0-based child index within this parent's batch.
+		if db.IndexAs != "" {
+			record.Set(db.IndexAs, row-layout.prefixSum[parentIdx])
+		}
 
 		if err := generateFieldValues(chunkFields, row, record); err != nil {
 			return nil, err

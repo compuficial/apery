@@ -1,0 +1,30 @@
+# Simple Cross-Row Example: Monthly Revenue
+seed: 123
+entities:
+  - name: Subscription
+    count: 3
+    fields:
+      - name: id
+        gen: seq
+      - name: total_cents
+        gen: int
+        config:
+          min: 10000
+          max: 100000
+
+  - name: MonthlyRevenue
+    driven_by:
+      entity: Subscription
+      field: id
+      as: subscription_id
+      min: 3
+      max: 3
+      expose:
+        - { field: total_cents, as: sub_total }
+    fields:
+      - name: month
+        gen: seq
+      - name: revenue
+        gen: expr
+        config:
+          expr: "{sub_total} / 3"

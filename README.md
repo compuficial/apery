@@ -84,7 +84,7 @@ $ apery generate -f plan.yaml | head -3
 |---|---|
 | **Deterministic** | `Plan + Seed = Identical Output`. Always. Across parallel workers, platforms, runs. |
 | **Fast** | Chunked parallel execution across all cores. See [Performance](#performance) for numbers. |
-| **Composable** | 20 generators that nest and combine. Objects, lists, templates, conditional dispatch. |
+| **Composable** | 22 generators that nest and combine. Objects, lists, templates, conditional dispatch, cross-row arithmetic. |
 | **Relational** | Foreign keys, 1:M parent-child, M:N junction tables. Zipf distributions for realistic skew. |
 | **Agent-first** | YAML/JSON plans, stdout piping, structured slog output, exit codes. No GUI, no server. |
 | **Zero config** | Single binary. No database, no runtime dependencies. |
@@ -122,12 +122,19 @@ Run `apery list generators` to see all available generators, or `apery describe 
 | `template` | String interpolation: `"{first} {last}"` |
 | `switch` | Conditional dispatch based on another field |
 
+### Computed (row-aware)
+
+| Generator | Description |
+|-----------|-------------|
+| `expr` | Arithmetic over `{field}` refs and numbers: `"{total} / 12"`, `"{amount} * {fx_rate}"` |
+| `date_offset` | Shift a base date by N units: `base: "{start}", amount: "{i}", unit: months` |
+
 ### Relational
 
 | Generator | Description |
 |-----------|-------------|
 | `rel_ref` | Foreign key from a previously generated entity (uniform or zipf, optional `unique: true`) |
-| `driven_by` | 1:M parent-child — generate Min to Max children per parent row |
+| `driven_by` | 1:M parent-child — Min to Max children per parent row; `expose` parent columns and `index_as` the child's position so children can compute cross-row values |
 
 ## Relational Example
 
@@ -286,7 +293,7 @@ apery.Run(ctx, p, w,
 ```mermaid
 flowchart LR
     Plan([Plan<br/>YAML / JSON])
-    Registry[[Registry<br/>20 generators]]
+    Registry[[Registry<br/>22 generators]]
     Runtime[[Runtime<br/>chunked parallel executor]]
     Writer[[Writer<br/>JSONL / CSV / split]]
     Out([Records])

@@ -185,9 +185,15 @@ func (e *Executor) initFields(entity *plan.EntitySpec, entitySeed rng.Seed) ([]f
 	fields := make([]fieldRuntime, 0, len(entity.Fields))
 	knownFields := make(map[string]bool)
 
-	// If driven_by, the As field is auto-injected and counts as known.
+	// driven_by auto-injects these columns, so they count as known.
 	if entity.DrivenBy != nil {
 		knownFields[entity.DrivenBy.As] = true
+		for _, pf := range entity.DrivenBy.Expose {
+			knownFields[pf.ChildName()] = true
+		}
+		if entity.DrivenBy.IndexAs != "" {
+			knownFields[entity.DrivenBy.IndexAs] = true
+		}
 	}
 
 	for _, field := range entity.Fields {
@@ -410,6 +416,10 @@ func requiredColumns(entities []plan.EntitySpec) map[string][]string {
 	for _, e := range entities {
 		if e.DrivenBy != nil {
 			addRequired(e.DrivenBy.Entity, e.DrivenBy.Field)
+			// Cache exposed parent columns too.
+			for _, pf := range e.DrivenBy.Expose {
+				addRequired(e.DrivenBy.Entity, pf.Field)
+			}
 		}
 		for _, f := range e.Fields {
 			if f.Gen == genRelRef {
