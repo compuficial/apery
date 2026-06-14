@@ -401,6 +401,110 @@ func TestValidate(t *testing.T) {
 			expectError: true,
 			errContains: "unique rel_ref",
 		},
+		// --- DrivenBy expose + index_as validation ---
+		{
+			name: "valid driven_by with expose and index_as",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Sub", Count: 10, Fields: []FieldSpec{
+						{Name: "id", Gen: "seq"},
+						{Name: "total", Gen: "int"},
+						{Name: "start", Gen: "time"},
+					}},
+					{Name: "Recog", DrivenBy: &DrivenBy{
+						Entity: "Sub", Field: "id", As: "sub_id", Min: 12, Max: 12,
+						Expose: []ParentField{
+							{Field: "total", As: "sub_total"},
+							{Field: "start"}, // As defaults to "start"
+						},
+						IndexAs: "i",
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "expose field not in parent",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Sub", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Recog", DrivenBy: &DrivenBy{
+						Entity: "Sub", Field: "id", As: "sub_id", Min: 1, Max: 2,
+						Expose: []ParentField{{Field: "nope"}},
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "expose field 'nope' does not exist",
+		},
+		{
+			name: "expose alias conflicts with as",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Sub", Count: 10, Fields: []FieldSpec{
+						{Name: "id", Gen: "seq"}, {Name: "total", Gen: "int"},
+					}},
+					{Name: "Recog", DrivenBy: &DrivenBy{
+						Entity: "Sub", Field: "id", As: "sub_id", Min: 1, Max: 2,
+						Expose: []ParentField{{Field: "total", As: "sub_id"}},
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "injects \"sub_id\" more than once",
+		},
+		{
+			name: "index_as conflicts with declared field",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Sub", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Recog", DrivenBy: &DrivenBy{
+						Entity: "Sub", Field: "id", As: "sub_id", Min: 1, Max: 2,
+						IndexAs: "amount",
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "conflicts with declared field",
+		},
+		{
+			name: "expose missing field key",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Sub", Count: 10, Fields: []FieldSpec{{Name: "id", Gen: "seq"}}},
+					{Name: "Recog", DrivenBy: &DrivenBy{
+						Entity: "Sub", Field: "id", As: "sub_id", Min: 1, Max: 2,
+						Expose: []ParentField{{As: "x"}},
+					}, Fields: []FieldSpec{{Name: "amount", Gen: "int"}}},
+				},
+			},
+			expectError: true,
+			errContains: "expose entry missing 'field'",
+		},
+		{
+			name: "child reads exposed parent field via template",
+			plan: &Plan{
+				Seed: 42,
+				Entities: []EntitySpec{
+					{Name: "Sub", Count: 10, Fields: []FieldSpec{
+						{Name: "id", Gen: "seq"}, {Name: "plan", Gen: "const", Config: map[string]any{"value": "pro"}},
+					}},
+					{Name: "Recog", DrivenBy: &DrivenBy{
+						Entity: "Sub", Field: "id", As: "sub_id", Min: 1, Max: 2,
+						Expose:  []ParentField{{Field: "plan"}},
+						IndexAs: "i",
+					}, Fields: []FieldSpec{
+						{Name: "label", Gen: "template", Config: map[string]any{"tpl": "{plan}-{i}"}},
+					}},
+				},
+			},
+			expectError: false,
+		},
 		{
 			name: "driven_by references parent As field",
 			plan: &Plan{

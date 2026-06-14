@@ -641,3 +641,95 @@ func TestExecutorDrivenBySeqContiguous(t *testing.T) {
 		}
 	}
 }
+
+// TestExecutorDrivenByExposeAndIndex verifies expose + child-index injection
+// end to end; a small chunk size forces a mid-parent boundary to prove the
+// index is chunk-independent.
+func TestExecutorDrivenByExposeAndIndex(t *testing.T) {
+	p := &plan.Plan{
+		Seed: 7,
+		Entities: []plan.EntitySpec{
+			{Name: "Subscription", Count: 3, Fields: []plan.FieldSpec{
+				{Name: "id", Gen: "seq"},
+				{Name: "total", Gen: "int", Config: map[string]any{"min": 12000, "max": 12000}},
+				{Name: "start", Gen: "const", Config: map[string]any{"value": "2024-01-01"}},
+			}},
+			{Name: "Recognition", DrivenBy: &plan.DrivenBy{
+				Entity: "Subscription", Field: "id", As: "sub_id", Min: 2, Max: 2,
+				Expose: []plan.ParentField{
+					{Field: "total", As: "sub_total"},
+					{Field: "start", As: "sub_start"},
+				},
+				IndexAs: "event_index",
+			}, Fields: []plan.FieldSpec{
+				{Name: "recognized_at", Gen: "date_offset", Config: map[string]any{
+					"base": "{sub_start}", "amount": "{event_index}", "unit": "months", "format": "2006-01-02",
+				}},
+				{Name: "amount", Gen: "expr", Config: map[string]any{"expr": "{sub_total} / 12"}},
+			}},
+		},
+	}
+
+	w := &recordWriter{}
+	// chunkSize 3 over 6 child rows splits parent 1's two children across chunks.
+	e := New(w, WithChunkSize(3))
+	if err := e.Run(context.Background(), p); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// 3 Subscriptions + 6 Recognitions (3 parents x 2 children).
+	if len(w.records) != 9 {
+		t.Fatalf("expected 9 records, got %d", len(w.records))
+	}
+	recog := w.records[3:]
+	if len(recog) != 6 {
+		t.Fatalf("expected 6 recognition records, got %d", len(recog))
+	}
+
+	type want struct {
+		subID, idx   int64
+		recognizedAt string
+		amount       int64
+	}
+	wants := []want{
+		{1, 0, "2024-01-01", 1000},
+		{1, 1, "2024-02-01", 1000},
+		{2, 0, "2024-01-01", 1000},
+		{2, 1, "2024-02-01", 1000},
+		{3, 0, "2024-01-01", 1000},
+		{3, 1, "2024-02-01", 1000},
+	}
+	for i, rec := range recog {
+		assertField(t, rec, "sub_id", wants[i].subID, i)
+		assertField(t, rec, "sub_total", int64(12000), i)
+		assertField(t, rec, "sub_start", "2024-01-01", i)
+		assertField(t, rec, "event_index", wants[i].idx, i)
+		assertField(t, rec, "recognized_at", wants[i].recognizedAt, i)
+		assertField(t, rec, "amount", wants[i].amount, i)
+	}
+
+	// Column order: injected columns (join key, exposed, index) precede fields.
+	gotKeys := recog[0].Keys()
+	wantKeys := []string{"sub_id", "sub_total", "sub_start", "event_index", "recognized_at", "amount"}
+	if len(gotKeys) != len(wantKeys) {
+		t.Fatalf("key order: got %v, want %v", gotKeys, wantKeys)
+	}
+	for i := range wantKeys {
+		if gotKeys[i] != wantKeys[i] {
+			t.Errorf("key order: got %v, want %v", gotKeys, wantKeys)
+			break
+		}
+	}
+}
+
+func assertField(t *testing.T, rec *writer.OrderedMap, field string, want any, row int) {
+	t.Helper()
+	got, ok := rec.Get(field)
+	if !ok {
+		t.Errorf("row %d: missing field %q", row, field)
+		return
+	}
+	if got != want {
+		t.Errorf("row %d: field %q = %#v (%T), want %#v (%T)", row, field, got, got, want, want)
+	}
+}

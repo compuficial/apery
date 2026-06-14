@@ -35,7 +35,7 @@ Apery is designed to be driven by agents and scripts first. Silent stdout, machi
 ```mermaid
 flowchart LR
     Plan([Plan<br/>YAML / JSON])
-    Registry[[Registry<br/>20 generators]]
+    Registry[[Registry<br/>22 generators]]
     Runtime[[Runtime<br/>chunked parallel executor]]
     Writer[[Writer<br/>JSONL / CSV / split]]
     Out([Records])
@@ -87,11 +87,18 @@ type EntitySpec struct {
 }
 
 type DrivenBy struct {
-    Entity string `yaml:"entity" json:"entity"`  // parent entity name
-    Field  string `yaml:"field"  json:"field"`   // parent field to inject
-    As     string `yaml:"as"     json:"as"`      // name for the injected field in child
-    Min    int64  `yaml:"min"    json:"min"`     // minimum children per parent (>= 1)
-    Max    int64  `yaml:"max"    json:"max"`     // maximum children per parent (>= Min)
+    Entity  string        `yaml:"entity"             json:"entity"`   // parent entity name
+    Field   string        `yaml:"field"              json:"field"`    // parent field to inject (the join key)
+    As      string        `yaml:"as"                 json:"as"`       // name for the injected join key in child
+    Min     int64         `yaml:"min"                json:"min"`      // minimum children per parent (>= 1)
+    Max     int64         `yaml:"max"                json:"max"`      // maximum children per parent (>= Min)
+    Expose  []ParentField `yaml:"expose,omitempty"   json:"expose,omitempty"`   // extra parent columns to expose in each child
+    IndexAs string        `yaml:"index_as,omitempty" json:"index_as,omitempty"` // inject the 0-based child index under this name
+}
+
+type ParentField struct {
+    Field string `yaml:"field"        json:"field"`        // parent field name
+    As    string `yaml:"as,omitempty" json:"as,omitempty"` // child column name (defaults to Field)
 }
 
 type FieldSpec struct {
@@ -141,12 +148,12 @@ Enforced by `plan.Validate` in [`internal/plan/validate.go`](../internal/plan/va
 - Name is non-empty and unique across the plan.
 - Exactly one of `Count` or `DrivenBy` must be set.
 - At least one field must be defined.
-- Field names within an entity must be unique. `DrivenBy.As` must not collide with a declared field.
+- Field names within an entity must be unique. The columns `driven_by` injects (`As`, every `expose` alias, and `index_as`) must be distinct from each other and must not collide with a declared field.
 - Config keys with a leading underscore (`_store`, etc.) are reserved and rejected.
 
 **Relational**
 - A `DrivenBy` parent entity must be declared before the child.
-- `DrivenBy.Field` must exist on the parent entity (including the parent's own injected `As` field, if any).
+- `DrivenBy.Field` and every `DrivenBy.Expose[i].Field` must exist on the parent entity (including the parent's own injected columns, if any).
 - `DrivenBy.Min >= 1` and `DrivenBy.Max >= DrivenBy.Min`.
 - A `rel_ref` target entity must be declared before the referencing entity, and the target field must exist on it.
 - For `unique: true` `rel_ref` inside a `driven_by` entity, `DrivenBy.Max` must not exceed the target entity's `Count` (feasibility check).
@@ -155,7 +162,7 @@ Enforced by `plan.Validate` in [`internal/plan/validate.go`](../internal/plan/va
 
 ## 5. Generators
 
-20 built-in generators, grouped by shape. Full config reference via `apery describe generator <name>`.
+22 built-in generators, grouped by shape. Full config reference via `apery describe generator <name>`.
 
 ### 5.1 Scalar
 
@@ -188,7 +195,19 @@ Enforced by `plan.Validate` in [`internal/plan/validate.go`](../internal/plan/va
 
 `template` and `switch` are **row-aware**: they read previously generated fields in the current row. Both declare their field dependencies so the executor can enforce earlier-field ordering.
 
-### 5.3 Relational
+### 5.3 Computed (row-aware)
+
+| Generator | Required | Optional | Output | Description |
+|-----------|----------|----------|--------|-------------|
+| `expr`        | `expr` (string) | — | `int64` \| `float64` | Arithmetic over `{field}` refs and numeric literals: `+ - * /`, parentheses, unary minus |
+| `date_offset` | `base`, `amount`, `unit` | `format` (Go layout, default RFC3339) | `string` | Shift a base date by N `years`\|`months`\|`days`\|`hours`\|`minutes`\|`seconds` |
+
+These close the cross-row arithmetic/temporal gap (see §6.4). Both are **row-aware** and declare dependencies.
+
+- `expr` reads numeric fields and emits an `int64` when the result is a whole number, otherwise a `float64`. Referencing a missing or non-numeric field, or dividing by zero, is a row-time error. Example: `expr: "{sub_total} / 12"`.
+- `date_offset` takes a `base` (a date literal or a `{field}` reference) and an `amount` and shifts it by `unit`. The `amount` is an `expr`-style expression string — a field (`"{event_index}"`) or arithmetic (`"{quarter} * 3"`, `"-2"`) — so `date_offset` composes the `expr` engine rather than reimplementing field arithmetic. A bare number is also accepted as a convenience for a constant offset (`amount: 1`), the same way the numeric generators accept `1` for `1.0`. Calendar units (`years`/`months`/`days`) use `time.AddDate` and normalize overflow the Go way (e.g. Jan 31 + 1 month → Mar 3); clock units add a fixed, overflow-checked duration. The same `format` is used to parse `base` and to render the result. Example: `base: "{sub_start}", amount: "{event_index}", unit: months`.
+
+### 5.4 Relational
 
 | Generator | Required | Optional | Output | Description |
 |-----------|----------|----------|--------|-------------|
@@ -196,7 +215,7 @@ Enforced by `plan.Validate` in [`internal/plan/validate.go`](../internal/plan/va
 
 `rel_ref` is injected with an internal `_store` reference at chunk instantiation; it implements `Resettable` so unique-trackers are cleared between parent batches in driven_by entities.
 
-### 5.4 Regex subset
+### 5.5 Regex subset
 
 The `regex` generator supports the generatable portion of RE2:
 
@@ -247,6 +266,31 @@ Set on the child entity. The executor generates `Min` to `Max` child rows per pa
 
 Child count per parent is deterministic, derived from the parent index and a dedicated count seed (see §7.1).
 
+**Exposing more of the parent + the child index.** Beyond the single join key, `expose` injects additional parent columns into every child row, and `index_as` injects the child's **0-based** position within its parent's batch. All injected columns are ordinary row values, so any row-aware generator (`template`, `switch`, `expr`, `date_offset`) can read them:
+
+```yaml
+- name: Recognition
+  driven_by:
+    entity: Subscription
+    field: id
+    as: subscription_id
+    min: 12
+    max: 12
+    expose:
+      - { field: start_date, as: sub_start }   # `as` defaults to the parent field name
+      - { field: total, as: sub_total }
+    index_as: event_index                        # 0, 1, 2, … within each subscription
+  fields:
+    - name: recognized_at
+      gen: date_offset
+      config: { base: "{sub_start}", amount: "{event_index}", unit: months, format: "2006-01-02" }
+    - name: amount
+      gen: expr
+      config: { expr: "{sub_total} / 12" }
+```
+
+Injected columns appear first in each child row, in order: the `As` join key, then `expose` entries (declared order), then `index_as`.
+
 ### 6.3 M:N — composition, not a built-in
 
 M:N is expressed as a junction entity with `driven_by` (1:M from the left side) and a `unique` `rel_ref` (M:1 to the right side):
@@ -269,6 +313,18 @@ M:N is expressed as a junction entity with `driven_by` (1:M from the left side) 
 ```
 
 There is intentionally no `m2m` generator; composition keeps the engine small and the plan explicit.
+
+### 6.4 Cross-row dependent values
+
+Cross-row state used to be limited to foreign-key lookups (`rel_ref`). Three pieces combine to let a child row's values *derive* from its parent and its ordinal:
+
+1. **`driven_by.expose`** — read multiple parent columns, not just the join key.
+2. **`driven_by.index_as`** — the child's 0-based position within its parent batch.
+3. **`expr` / `date_offset`** — compute a field from those columns (arithmetic / temporal offset).
+
+Because exposed columns and the index are plain row values and the compute generators are row-aware, the whole thing is just composition — no new execution machinery. The worked example above generates a yearly subscription's 12 monthly revenue-recognition events where `recognized_at = start_date + event_index months` and `amount = total / 12`. A refund issued a month later after the FX rate moved is the same shape: `expose` the charge's `charged_at`, `amount`, and `fx_rate`, then `refunded_at = date_offset(charged_at, +1 month)` and `refund = expr({amount} * {fx_rate})`. See [`examples/subscriptions.yaml`](../examples/subscriptions.yaml).
+
+Determinism is preserved: `expr` and `date_offset` are pure functions of row values (they ignore the RNG), and the injected index is computed from global row position, so output is identical regardless of worker count or chunk size.
 
 ---
 
@@ -363,8 +419,8 @@ type Resettable interface {
 }
 ```
 
-- `RowAwareGenerator` — `template`, `switch`. The executor calls `NextWithRow` when this interface is satisfied, giving access to already-generated fields in the current row.
-- `DependencyDeclarer` — `template`, `switch`. Declared dependencies are validated to appear earlier in the field list.
+- `RowAwareGenerator` — `template`, `switch`, `expr`, `date_offset`. The executor calls `NextWithRow` when this interface is satisfied, giving access to already-generated fields in the current row.
+- `DependencyDeclarer` — `template`, `switch`, `expr`, `date_offset`. Declared dependencies are validated to appear earlier in the field list.
 - `Resettable` — `rel_ref` (when `unique: true`). Reset at parent-batch boundaries inside driven_by entities.
 
 ---
@@ -570,7 +626,7 @@ return apery.Run(ctx, p, w,
        MustRegisterInfo("mygen", GeneratorInfo{ /* description, keys, example */ })
    }
    ```
-4. Add a field using the new generator to the appropriate canonical plan in [`internal/runtime/determinism_helpers_test.go`](../internal/runtime/determinism_helpers_test.go) (scalar, composite, row-aware, or relational). If the generator doesn't fit any existing category, add a new canonical plan to the `canonicalPlans` slice.
+4. Add a field using the new generator to the appropriate canonical plan in [`internal/runtime/determinism_helpers_test.go`](../internal/runtime/determinism_helpers_test.go) (scalar, composite, row-aware, relational, or dependent). If the generator doesn't fit any existing category, add a new canonical plan to the `canonicalPlans` slice.
 5. Regenerate golden files:
    ```
    go test ./internal/runtime -run TestGolden -update -v

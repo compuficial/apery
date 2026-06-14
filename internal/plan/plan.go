@@ -24,13 +24,30 @@ type EntitySpec struct {
 // DrivenBy configures parent-driven child row generation (1:M relationships).
 // When set on an EntitySpec, the executor generates Min to Max child rows per
 // parent row instead of using Count. The parent's Field value is auto-injected
-// into each child row under the name As.
+// into each child row under the name As. Expose adds further parent columns and
+// IndexAs adds the child's 0-based position within its parent batch.
 type DrivenBy struct {
-	Entity string `json:"entity" yaml:"entity"` // parent entity name
-	Field  string `json:"field" yaml:"field"`   // parent field to inject into child rows
-	As     string `json:"as" yaml:"as"`          // field name in child row for the injected value
-	Min    int64  `json:"min" yaml:"min"`        // minimum children per parent (must be >= 1)
-	Max    int64  `json:"max" yaml:"max"`        // maximum children per parent (must be >= Min)
+	Entity  string        `json:"entity" yaml:"entity"`                         // parent entity name
+	Field   string        `json:"field" yaml:"field"`                           // parent field to inject into child rows (the join key)
+	As      string        `json:"as" yaml:"as"`                                 // field name in child row for the injected join-key value
+	Min     int64         `json:"min" yaml:"min"`                               // minimum children per parent (must be >= 1)
+	Max     int64         `json:"max" yaml:"max"`                               // maximum children per parent (must be >= Min)
+	Expose  []ParentField `json:"expose,omitempty" yaml:"expose,omitempty"`     // extra parent columns to expose in each child
+	IndexAs string        `json:"index_as,omitempty" yaml:"index_as,omitempty"` // inject the 0-based child index under this name
+}
+
+// ParentField is a parent column to expose in child rows, optionally renamed.
+type ParentField struct {
+	Field string `json:"field" yaml:"field"`               // parent field name
+	As    string `json:"as,omitempty" yaml:"as,omitempty"` // child field name (defaults to Field)
+}
+
+// ChildName is the child column name: As, or Field when As is empty.
+func (pf ParentField) ChildName() string {
+	if pf.As != "" {
+		return pf.As
+	}
+	return pf.Field
 }
 
 // FieldSpec defines a single column/field

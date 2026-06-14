@@ -287,7 +287,49 @@ head -5 ./out-csv/User.csv
 head -5 ./out-csv/Order.csv
 ```
 
-### 4. JSON Plan
+### 4. Cross-row — Subscriptions
+
+`driven_by` children can read columns from their parent (`expose`) and their own
+position in the parent batch (`index_as`), then compute values with `expr`
+(arithmetic) and `date_offset` (temporal offset). See [`examples/subscriptions.yaml`](../examples/subscriptions.yaml):
+
+```yaml
+- name: Recognition
+  driven_by:
+    entity: Subscription
+    field: id
+    as: subscription_id
+    min: 12
+    max: 12
+    expose:
+      - { field: start_date, as: sub_start }
+      - { field: total_cents, as: sub_total }
+    index_as: event_index            # 0, 1, 2, … within each subscription
+  fields:
+    - name: recognized_at            # start_date shifted by the event's month
+      gen: date_offset
+      config: { base: "{sub_start}", amount: "{event_index}", unit: months, format: "2006-01-02" }
+    - name: amount_cents             # total split evenly across 12 events
+      gen: expr
+      config: { expr: "{sub_total} / 12" }
+```
+
+```bash
+apery validate -f examples/subscriptions.yaml
+
+# A subscription's 12 monthly recognition events: recognized_at advances one
+# month per event, amount stays total/12.
+apery generate -f examples/subscriptions.yaml \
+  | jq -c 'select(._entity=="Recognition" and .subscription_id==1)
+           | {event_index, recognized_at, amount_cents}'
+
+# A charge refunded a month later after the FX rate moved.
+apery generate -f examples/subscriptions.yaml \
+  | jq -c 'select(._entity=="Refund")
+           | {charge_id, orig_charged_at, refunded_at, orig_amount, fx, amount_eur}' | head -3
+```
+
+### 5. JSON Plan
 
 Create `examples/simple.json`:
 

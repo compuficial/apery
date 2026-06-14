@@ -43,7 +43,7 @@ make bench
 
 ### Golden Determinism Tests
 
-Four canonical plans (scalar, composite, row-aware, relational) in `internal/runtime/determinism_helpers_test.go` define the golden test fixtures. Both `TestGolden` and `TestStress` use these plans automatically.
+Five canonical plans (scalar, composite, row-aware, relational, dependent) in `internal/runtime/determinism_helpers_test.go` define the golden test fixtures. Both `TestGolden` and `TestStress` use these plans automatically.
 
 When adding a new generator, add a field to the appropriate canonical plan and regenerate golden files with `-update`. The stress tests will pick up the change automatically. If a new generator doesn't fit any existing plan category, create a new canonical plan in `determinism_helpers_test.go` and add it to the `canonicalPlans` slice — both `TestGolden` and `TestStress` will pick it up automatically.
 
@@ -74,7 +74,7 @@ go test ./internal/runtime -run TestStress -v
    - Global registry pattern with `Register()` (returns error), `MustRegister()` (panic on error), and `Get()`
    - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
-   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `rel_ref`
+   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `expr`, `date_offset`, `rel_ref`
    - Interfaces: `Generator`, `RowAwareGenerator`, `DependencyDeclarer`, `ReadOnlyEntityStore`, `EntityStore`, `Resettable`
 
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
@@ -148,7 +148,9 @@ Composite generators (e.g., `object`) instantiate sub-generators at factory time
 
 **`rel_ref`** samples values from a previously generated entity's column. Supports uniform (default) and zipf distributions, with optional `unique: true` for deduplication within a parent batch. Uses `ReadOnlyEntityStore` injected via the `_store` config key at chunk time.
 
-**`DrivenBy`** configures 1:M parent-driven child row generation. When set on `EntitySpec`, the executor generates Min to Max children per parent row instead of using Count. The parent field value is auto-injected into each child row under `DrivenBy.As`.
+**`DrivenBy`** configures 1:M parent-driven child row generation. When set on `EntitySpec`, the executor generates Min to Max children per parent row instead of using Count. The parent field value is auto-injected into each child row under `DrivenBy.As`. Optionally, `DrivenBy.Expose` (`[]ParentField`) injects additional parent columns and `DrivenBy.IndexAs` injects the child's 0-based position within its parent batch — all as ordinary row columns that row-aware generators can read. Injection order: `As`, then `Expose` (declared order), then `IndexAs`.
+
+**Cross-row dependent values** (`expr`, `date_offset`) are row-aware generators that compute a field from sibling/exposed/index columns: `expr` does arithmetic over `{field}` refs and numeric literals (`+ - * /`, parens; emits `int64` when whole, else `float64`); `date_offset` shifts a base date (literal or `{field}`) by an amount in years/months/days/hours/minutes/seconds, where the amount is an `expr`-style expression string (e.g. `"{event_index}"`, `"{q} * 3"`) — it reuses the `expr` engine (`compileExpr`) rather than reimplementing field arithmetic — or a bare number (`amount: 1`) accepted as a convenience for a constant offset. Both are pure functions of row values (ignore the RNG), so output stays chunk- and worker-independent.
 
 **M:N relationships** are composed from `driven_by` (1:M from left entity) + `rel_ref` with `unique: true` (M:1 to right entity) on a junction entity.
 
@@ -166,7 +168,7 @@ Key design rules:
 2. Implement `Generator` interface
 3. Register in `init()` function with factory
 4. Factory should validate config and return generator instance
-5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, row-aware, or relational)
+5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, row-aware, relational, or dependent)
 6. Regenerate golden files: `go test ./internal/runtime -run TestGolden -update -v`
 7. Review the golden file diff and commit
 
@@ -183,6 +185,8 @@ The registry is global and thread-safe via init-time registration.
 - `internal/plan/validate.go`: Plan validation including relational constraints
 - `internal/registry/registry.go`: Generator registry, `GeneratorInfo`, `MustRegisterInfo`, `ListGenerators`
 - `internal/registry/rel_ref.go`: Relational foreign key generator
+- `internal/registry/expr.go`: Row-aware arithmetic generator (`{field}` refs + literals, `+ - * /`)
+- `internal/registry/date_offset.go`: Row-aware temporal offset generator (date ± N units)
 - `internal/runtime/executor.go`: Execution orchestrator with slog-based structured logging
 - `internal/runtime/driven_by.go`: Driven-by execution path and layout computation
 - `internal/runtime/entity_store.go`: Cross-entity column store

@@ -1,0 +1,99 @@
+# Cross-row dependent values (issue #1).
+#
+# driven_by children can read columns from their parent row (expose) and their
+# own position within the parent's batch (index_as), then compute values from
+# them with the expr (arithmetic) and date_offset (temporal) generators.
+seed: 42
+entities:
+  - name: Subscription
+    count: 5
+    fields:
+      - name: id
+        gen: seq
+      - name: customer
+        gen: regex
+        config:
+          pattern: "cus_[a-zA-Z0-9]{8}"
+      - name: start_date
+        gen: time
+        config:
+          start: "2024-01-01"
+          end: "2024-06-30"
+          format: "2006-01-02"
+      - name: total_cents
+        gen: int
+        config:
+          min: 12000
+          max: 240000
+
+  # A yearly subscription's revenue released across 12 monthly recognition
+  # events: recognized_at = start_date + event_index months, amount = total / 12.
+  - name: Recognition
+    driven_by:
+      entity: Subscription
+      field: id
+      as: subscription_id
+      min: 12
+      max: 12
+      expose:
+        - { field: start_date, as: sub_start }
+        - { field: total_cents, as: sub_total }
+      index_as: event_index
+    fields:
+      - name: recognized_at
+        gen: date_offset
+        config:
+          base: "{sub_start}"
+          amount: "{event_index}"
+          unit: months
+          format: "2006-01-02"
+      - name: amount_cents
+        gen: expr
+        config:
+          expr: "{sub_total} / 12"
+
+  # A charge, and a refund issued one month later after the FX rate has moved:
+  # refunded_at = charged_at + 1 month, amount_eur = amount_usd * fx_rate.
+  - name: Charge
+    count: 8
+    fields:
+      - name: id
+        gen: seq
+      - name: charged_at
+        gen: time
+        config:
+          start: "2024-01-01T00:00:00Z"
+          end: "2024-03-31T23:59:59Z"
+      - name: amount_usd
+        gen: int
+        config:
+          min: 1000
+          max: 50000
+      - name: fx_rate
+        gen: float
+        config:
+          min: 0.85
+          max: 0.95
+
+  - name: Refund
+    driven_by:
+      entity: Charge
+      field: id
+      as: charge_id
+      min: 1
+      max: 1
+      expose:
+        - { field: charged_at, as: orig_charged_at }
+        - { field: amount_usd, as: orig_amount }
+        - { field: fx_rate, as: fx }
+    fields:
+      - name: refunded_at
+        gen: date_offset
+        config:
+          base: "{orig_charged_at}"
+          amount: 1            # bare number; or an expr string like "{event_index}"
+          unit: months
+      - name: amount_eur
+        gen: expr
+        config:
+          expr: "{orig_amount} * {fx}"

@@ -37,10 +37,16 @@ func Validate(p *Plan) error {
 		vc.entityNames[e.Name] = struct{}{}
 		vc.entitySpecs[e.Name] = e
 
-		// Build field set for this entity (including injected As field).
+		// Build field set for this entity (including auto-injected driven_by columns).
 		fields := make(map[string]bool, len(e.Fields)+1)
 		if e.DrivenBy != nil {
 			fields[e.DrivenBy.As] = true
+			for _, pf := range e.DrivenBy.Expose {
+				fields[pf.ChildName()] = true
+			}
+			if e.DrivenBy.IndexAs != "" {
+				fields[e.DrivenBy.IndexAs] = true
+			}
 		}
 		for _, f := range e.Fields {
 			fields[f.Name] = true
@@ -102,10 +108,46 @@ func validateDrivenBy(e *EntitySpec, vc *validationContext) error {
 		return fmt.Errorf("plan: entity[%q]: driven_by field '%s' does not exist in entity %q", e.Name, db.Field, db.Entity)
 	}
 
-	// As field must not conflict with declared child fields.
+	if db.As == "" {
+		return fmt.Errorf("plan: entity[%q]: driven_by 'as' must not be empty", e.Name)
+	}
+
+	// Collect auto-injected columns and ensure none collide.
+	injected := map[string]bool{}
+	add := func(name string) error {
+		if injected[name] {
+			return fmt.Errorf("plan: entity[%q]: driven_by injects %q more than once", e.Name, name)
+		}
+		injected[name] = true
+		return nil
+	}
+	if err := add(db.As); err != nil {
+		return err
+	}
+
+	// Each exposed parent field must exist and inject a unique column.
+	for _, pf := range db.Expose {
+		if pf.Field == "" {
+			return fmt.Errorf("plan: entity[%q]: driven_by expose entry missing 'field'", e.Name)
+		}
+		if !parentFields[pf.Field] {
+			return fmt.Errorf("plan: entity[%q]: driven_by expose field '%s' does not exist in entity %q", e.Name, pf.Field, db.Entity)
+		}
+		if err := add(pf.ChildName()); err != nil {
+			return err
+		}
+	}
+
+	if db.IndexAs != "" {
+		if err := add(db.IndexAs); err != nil {
+			return err
+		}
+	}
+
+	// No injected column may conflict with an explicitly declared child field.
 	for _, f := range e.Fields {
-		if f.Name == db.As {
-			return fmt.Errorf("plan: entity[%q]: driven_by as %q conflicts with declared field", e.Name, db.As)
+		if _, clash := injected[f.Name]; clash {
+			return fmt.Errorf("plan: entity[%q]: driven_by-injected column %q conflicts with declared field", e.Name, f.Name)
 		}
 	}
 
