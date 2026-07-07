@@ -87,6 +87,33 @@ entities:
 
 **M:N** — compose: a junction entity with `driven_by` on the left side and `rel_ref` with `unique: true` on the right side.
 
+**Cross-row dependent values (`expr`, `date_offset`)** — compute a field from sibling columns in the same row. Inside a `driven_by` entity, `expose` extra parent columns and `index_as` the child's 0-based position, then reference them with `{field}`:
+
+```yaml
+- name: Invoice
+  driven_by:
+    entity: Subscription
+    field: id
+    as: subscription_id
+    min: 1
+    max: 12
+    expose:
+      - field: start_date       # parent column injected into each child
+    index_as: period            # 0-based child position within its parent
+  fields:
+    - name: billed_at
+      gen: date_offset
+      config: { base: "{start_date}", amount: "{period}", unit: months }
+    - name: quantity
+      gen: int
+      config: { min: 1, max: 5 }
+    - name: total_cents
+      gen: expr
+      config: { expr: "{quantity} * 250" }
+```
+
+Field order matters: `expr`/`date_offset` can only reference fields declared **before** them (or injected by `driven_by`).
+
 ## CLI quick reference
 
 ```bash
@@ -133,5 +160,5 @@ Exit codes: `0` success, `1` validation/plan error, `2` generation error, `3` I/
 ## When to push back
 
 - If the user's request is fundamentally one-shot ("just give me 3 sample users right now"), inline the data instead of building a plan — the plan-and-generate overhead isn't worth it.
-- If the user wants data that depends on real-world joins, external lookups, or stateful computation across rows, apery isn't the right tool — it generates row-by-row from a declarative plan. Say so.
+- If the user wants data that depends on external lookups or real-world sources, apery isn't the right tool — it generates from a declarative plan only. (Fields computed from sibling columns ARE supported via `expr`/`date_offset` — don't reject those.)
 - If the user wants a generator that doesn't exist, don't invent config syntax for it. Tell them what's in `apery list generators` and ask which one fits, or whether the use case warrants a new generator.
