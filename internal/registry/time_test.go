@@ -16,6 +16,7 @@ func TestTimeGenerator_Config(t *testing.T) {
 		{Name: "start", Config: map[string]any{"start": "2026-01-01T00:00:00Z"}, ExpectError: false},
 		{Name: "end", Config: map[string]any{"end": "2025-12-01T00:00:00Z"}, ExpectError: false},
 		{Name: "start & end", Config: map[string]any{"start": "2024-12-01T00:00:00Z", "end": "2030-01-01T00:00:00Z"}, ExpectError: false},
+		{Name: "bare date without format", Config: map[string]any{"start": "2024-01-01", "end": "2024-12-31"}, ExpectError: false},
 		{Name: "format", Config: map[string]any{"format": "2006-01-02"}, ExpectError: false},
 		{Name: "timezone", Config: map[string]any{"tz": "America/New_York"}, ExpectError: false},
 		{Name: "all", Config: map[string]any{
@@ -292,12 +293,11 @@ func TestTimeGenerator_EdgeCases(t *testing.T) {
 		ErrorMsg    string
 	}{
 		{
-			Name: "format mismatch - date-only start with RFC3339 format",
+			Name: "date-only start without format falls back to YYYY-MM-DD",
 			Config: map[string]any{
 				"start": "2024-01-01",
 			},
-			ExpectError: true,
-			ErrorMsg:    "parsing time",
+			ExpectError: false,
 		},
 		{
 			Name: "format mismatch - RFC3339 start with date-only format",

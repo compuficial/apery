@@ -91,6 +91,10 @@ func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time
 
 	parsed, err := time.Parse(format, s)
 	if err != nil {
+		// Docs promise bare YYYY-MM-DD works without setting format
+		if fallback, fbErr := time.Parse(time.DateOnly, s); fbErr == nil {
+			return fallback, nil
+		}
 		return time.Time{}, fmt.Errorf("time: invalid '%s': %w", key, err)
 	}
 
