@@ -134,7 +134,7 @@ All generators:
 - Implement `Generator` interface with `Next(*rng.Rng) (any, error)`
 - Auto-register via `init()` function
 - Accept configuration via `map[string]any`
-- Must be deterministic given the same RNG state
+- Must be deterministic given the same RNG state, on every architecture: write float math as `a + float64(b*c)` so arm64 can't fuse it into an FMA (CI's macOS arm64 job catches drift via the goldens)
 
 Example from `internal/registry/pick.go`:
 

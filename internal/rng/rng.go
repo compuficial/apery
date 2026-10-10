@@ -73,13 +73,14 @@ func (r *Rng) FloatRange(min float64, max float64) float64 {
 	}
 
 	// Ranges wider than MaxFloat64 interpolate without forming the width,
-	// which would overflow to +Inf.
+	// which would overflow to +Inf. float64() rounds each product so no
+	// platform fuses it into an FMA (see Normal).
 	width := hi - min
 	u := r.r.Float64()
 	if math.IsInf(width, 1) {
-		return min*(1-u) + hi*u
+		return float64(min*(1-u)) + float64(hi*u)
 	}
-	return min + u*width
+	return min + float64(u*width)
 }
 
 // Derive creates a child seed from parent + label.
@@ -102,14 +103,23 @@ func mix64(value uint64) uint64 {
 }
 
 // NormFloat64 returns a normally distributed float64 with mean 0 and stddev 1
-// using the Box-Muller transform
+// using the Box-Muller transform. It uses portable Log and Cos so the result
+// is identical on every architecture.
 func (r *Rng) NormFloat64() float64 {
 	u1 := r.Float64()
 	for u1 == 0 { // log(0) would yield an infinite sample
 		u1 = r.Float64()
 	}
 	u2 := r.Float64()
-	return math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
+	return math.Sqrt(-2*portableLog(u1)) * portableCos(2*math.Pi*u2)
+}
+
+// Normal returns a normally distributed float64 with mean mu and stddev
+// sigma. The float64() conversion forces rounding of the product: Go may
+// otherwise fuse a*b+c into one FMA on arm64 (or amd64 with GOAMD64=v3),
+// which changes the last bit and breaks cross-platform determinism.
+func (r *Rng) Normal(mu, sigma float64) float64 {
+	return mu + float64(sigma*r.NormFloat64())
 }
 
 // Read fills p with random bytes, implementing io.Reader. Each 64-bit draw

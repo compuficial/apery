@@ -22,7 +22,7 @@ type NormalFloatGenerator struct {
 
 // Next returns the next generated float value.
 func (g *NormalFloatGenerator) Next(r *rng.Rng) (any, error) {
-	val := g.mu + g.sigma*r.NormFloat64()
+	val := r.Normal(g.mu, g.sigma)
 
 	if g.hasClamp {
 		val = max(g.clampMin, min(g.clampMax, val))

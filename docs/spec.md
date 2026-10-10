@@ -536,7 +536,7 @@ Format is `jsonl` or `csv`. Files are created lazily on first write. Entity name
 
 This holds across:
 - Worker count, chunk size, and `GOMAXPROCS`.
-- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width).
+- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width). Float math rounds every product (`a + float64(b*c)`), so CPUs that fuse multiply-add (arm64, amd64 with `GOAMD64=v3`) give the same bits as amd64. `NormFloat64` uses portable `Log` and `Cos` because the stdlib versions differ per architecture.
 - Field ordering within composite generators (sub-seeds derive from names, not positions).
 - `driven_by` child counts (each parent's child count is derived from the parent index, not execution order).
 - Hosts with different time zone databases (zone rules are embedded in the binary).

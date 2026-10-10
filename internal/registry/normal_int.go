@@ -17,7 +17,7 @@ type NormalIntGenerator struct {
 
 // Next returns the next generated int value.
 func (g *NormalIntGenerator) Next(r *rng.Rng) (any, error) {
-	val := g.mu + g.sigma*r.NormFloat64()
+	val := r.Normal(g.mu, g.sigma)
 	rounded := int64(math.Round(val))
 
 	if g.hasClamp {

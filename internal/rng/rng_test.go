@@ -3,6 +3,7 @@ package rng
 import (
 	"bytes"
 	"encoding/binary"
+	"hash/fnv"
 	"math"
 	"math/rand/v2"
 	"testing"
@@ -133,6 +134,34 @@ func TestZipfMatchesStdlib(t *testing.T) {
 		}
 		if got := z.Uint64(New(seed)); got != want {
 			t.Fatalf("draw %d with new Rng: got %d, want %d", i, got, want)
+		}
+	}
+}
+
+// Float output must be bit-identical on every platform. arm64 (and amd64
+// with GOAMD64=v3) may fuse a*b+c into one FMA, and the stdlib's Log and Cos
+// round differently per architecture. The digests were recorded on amd64
+// (GOAMD64=v1) and must hold wherever CI runs.
+func TestFloatDigestsArePortable(t *testing.T) {
+	cases := []struct {
+		name string
+		draw func(r *Rng) float64
+		want uint64
+	}{
+		{"FloatRange", func(r *Rng) float64 { return r.FloatRange(-100, 100) }, 0x595a90a762f6dc6f},
+		{"FloatRangeHuge", func(r *Rng) float64 { return r.FloatRange(-math.MaxFloat64, math.MaxFloat64) }, 0x932b0cdf487b42a2},
+		{"Normal", func(r *Rng) float64 { return r.Normal(37, 0.5) }, 0x6f5491f3cc05cc22},
+	}
+	for _, c := range cases {
+		r := New(SeedFromInt64(11))
+		h := fnv.New64a()
+		var buf [8]byte
+		for range 100_000 {
+			binary.LittleEndian.PutUint64(buf[:], math.Float64bits(c.draw(r)))
+			h.Write(buf[:])
+		}
+		if got := h.Sum64(); got != c.want {
+			t.Errorf("%s digest = %#x, want %#x", c.name, got, c.want)
 		}
 	}
 }
