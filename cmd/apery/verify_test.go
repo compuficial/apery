@@ -83,7 +83,9 @@ func TestVerify_Mismatches(t *testing.T) {
 			rewrite(t, filepath.Join(dir, "User.jsonl"), func(s string) string { return s + "{\"id\":4}\n" })
 		}, []string{"--split-entities"}, "file has extra data", 4, "User.jsonl"},
 		{"missing file", func(t *testing.T, dir string) {
-			os.Remove(filepath.Join(dir, "Order.jsonl"))
+			if err := os.Remove(filepath.Join(dir, "Order.jsonl")); err != nil {
+				t.Fatal(err)
+			}
 		}, []string{"--split-entities"}, "missing file", 0, "Order.jsonl"},
 		{"unexpected file", func(t *testing.T, dir string) {
 			writeFile(t, dir, "Refund.jsonl", "{}\n")

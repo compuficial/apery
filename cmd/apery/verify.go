@@ -122,7 +122,7 @@ func compareRun(ctx context.Context, p *plan.Plan, o runOptions, counter *rowCou
 
 	// Run flushes w into c; Close then checks for extra data.
 	if err := run(w); err != nil {
-		c.Close()
+		_ = c.Close() // the run's error explains the failure
 		return err
 	}
 	return c.Close()

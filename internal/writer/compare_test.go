@@ -24,7 +24,7 @@ func compareChunks(t *testing.T, file, data string, size int) error {
 	for len(data) > 0 {
 		n := min(size, len(data))
 		if _, err := c.Write([]byte(data[:n])); err != nil {
-			c.Close()
+			_ = c.Close() // Write's mismatch is the answer
 			return err
 		}
 		data = data[n:]

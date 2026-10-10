@@ -33,7 +33,7 @@ func init() {
 			g.lambda = lambda
 		}
 		if !(g.lambda > 0 && g.lambda <= maxPoissonLambda) {
-			return nil, fmt.Errorf("poisson: 'lambda' must be > 0 and <= %g, got %v", float64(maxPoissonLambda), g.lambda)
+			return nil, fmt.Errorf("poisson: 'lambda' must be > 0 and <= %g, got %v", maxPoissonLambda, g.lambda)
 		}
 		return g, nil
 	})
