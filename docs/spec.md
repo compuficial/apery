@@ -734,5 +734,5 @@ Things Apery is deliberately **not**, so the scope doesn't drift:
 - No Parquet, SQL, or ML-training-format writers (SFT/DPO/RLHF). JSONL and CSV are the output formats.
 - No bundled catalogs of names / companies / addresses. Use `pick` with a `values`, `file`, or allowlisted `url` source.
 - No OpenTelemetry or distributed tracing. Observability is local stderr logging via `slog`.
-- No cross-version RNG compatibility. Seed output is stable within a released version; upgrading the RNG is a breaking change.
+- No cross-version output compatibility. Seed output is stable within a released version; a release that changes it says so in its release notes.
 - No data obfuscation, anonymization, or privacy guarantees. Apery generates synthetic data; it does not transform real data.
