@@ -14,7 +14,7 @@ See [`docs/usage.md`](usage.md) for a practical walkthrough with worked examples
 - **Interface**: a single CLI (`apery`) and a small Go library (`github.com/compuficial/apery`).
 - **Input**: a declarative plan in YAML or JSON.
 - **Output**: streaming JSONL or CSV — stdout, a file, or one file per entity.
-- **Runtime**: Go 1.24+, single static binary, no runtime dependencies.
+- **Runtime**: Go 1.27+, single static binary, no runtime dependencies.
 
 Apery is designed to be driven by agents and scripts first. Silent stdout, machine-parseable output, explicit exit codes, and structured stderr logging make it predictable to automate.
 

@@ -221,7 +221,7 @@ The registry is global and thread-safe via init-time registration.
 ## Module Information
 
 - Module name: `github.com/compuficial/apery`
-- Go version: 1.24.3
+- Go version: 1.27
 - External dependencies:
   - `github.com/google/uuid` - UUID generation
   - `github.com/oklog/ulid/v2` - ULID generation

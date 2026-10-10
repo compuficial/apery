@@ -35,13 +35,13 @@ curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/install.sh |
 
 **Manual download** — grab a tarball/zip from [releases](https://github.com/compuficial/apery/releases) (Linux, macOS, Windows; amd64 + arm64).
 
-**Go install** (requires Go 1.24+):
+**Go install** (requires Go 1.27+):
 
 ```bash
 go install github.com/compuficial/apery/cmd/apery@latest
 ```
 
-**From source** (requires Go 1.24+):
+**From source** (requires Go 1.27+):
 
 ```bash
 git clone https://github.com/compuficial/apery.git
