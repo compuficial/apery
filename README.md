@@ -103,7 +103,7 @@ $ apery generate -f plan.yaml | head -3
 
 ## Generators
 
-Run `apery list generators` to see all available generators, or `apery describe generator <name>` for full config docs.
+Run `apery list generators` to see all available generators, or `apery describe generator <name>` for full config docs. Any field can also set `null_rate: 0.2` to make that fraction of its values null.
 
 ### Scalar
 

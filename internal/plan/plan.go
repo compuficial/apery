@@ -55,9 +55,11 @@ func (pf ParentField) ChildName() string {
 	return pf.Field
 }
 
-// FieldSpec defines a single column/field
+// FieldSpec defines a single column/field. NullRate, in [0, 1], is the
+// fraction of rows whose value is replaced with null.
 type FieldSpec struct {
-	Name   string         `json:"name" yaml:"name"`
-	Gen    string         `json:"gen" yaml:"gen"`
-	Config map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
+	Name     string         `json:"name" yaml:"name"`
+	Gen      string         `json:"gen" yaml:"gen"`
+	Config   map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
+	NullRate float64        `json:"null_rate,omitempty" yaml:"null_rate,omitempty"`
 }

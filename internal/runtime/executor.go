@@ -42,7 +42,8 @@ type Executor struct {
 // fieldRuntime is a compiled field with its entity-scoped seed.
 type fieldRuntime struct {
 	compiledField
-	seed rng.Seed
+	seed     rng.Seed
+	nullSeed rng.Seed // separate stream, so null_rate never shifts values
 }
 
 type Option func(*Executor)
@@ -167,7 +168,8 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, ent *compiledEntit
 	entitySeed := rng.Derive(rng.SeedFromInt64(seed), fmt.Sprintf("%s[%d]", ent.spec.Name, ent.index))
 	fields := make([]fieldRuntime, len(ent.fields))
 	for i, f := range ent.fields {
-		fields[i] = fieldRuntime{compiledField: f, seed: rng.Derive(entitySeed, f.name)}
+		seed := rng.Derive(entitySeed, f.name)
+		fields[i] = fieldRuntime{compiledField: f, seed: seed, nullSeed: rng.Derive(seed, "null")}
 		e.logger.Debug("field.init", "entity", ent.spec.Name, "field", f.name, "gen", f.gen, "seed", fields[i].seed)
 	}
 
@@ -226,6 +228,8 @@ type chunkField struct {
 	name     string
 	gen      registry.Generator
 	seed     rng.Seed
+	nullSeed rng.Seed
+	nullRate float64
 	rowAware registry.RowAwareGenerator // non-nil if gen reads the row
 	seekable registry.Seekable          // non-nil if gen tracks row position
 }
@@ -251,7 +255,7 @@ func instantiateFields(fields []fieldRuntime, store registry.ReadOnlyEntityStore
 			}
 		}
 
-		cf := chunkField{name: field.name, gen: gen, seed: field.seed}
+		cf := chunkField{name: field.name, gen: gen, seed: field.seed, nullSeed: field.nullSeed, nullRate: field.nullRate}
 		cf.rowAware, _ = gen.(registry.RowAwareGenerator)
 		cf.seekable, _ = gen.(registry.Seekable)
 		cfs = append(cfs, cf)
@@ -274,6 +278,8 @@ func seekFields(fields []chunkField, row int64) error {
 
 // generateRow sets every field's value for one row. r is reseeded per field
 // from the row seed, so values don't depend on chunking or field order.
+// A nullable field still generates its value, so stateful generators stay in
+// step and the rows that aren't null match the plan without null_rate.
 func generateRow(fields []chunkField, row int64, record *writer.OrderedMap, r *rng.Rng) error {
 	for i := range fields {
 		f := &fields[i]
@@ -288,6 +294,13 @@ func generateRow(fields []chunkField, row int64, record *writer.OrderedMap, r *r
 		}
 		if err != nil {
 			return fmt.Errorf("row %d, field '%s': %w", row, f.name, err)
+		}
+
+		if f.nullRate > 0 {
+			r.Reseed(rng.DeriveIndex(f.nullSeed, row))
+			if r.Float64() < f.nullRate {
+				val = nil
+			}
 		}
 		record.Set(f.name, val)
 	}

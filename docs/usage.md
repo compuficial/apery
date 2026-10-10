@@ -92,6 +92,35 @@ apery generate -f examples/users.yaml --output-dir ./out
 cat ./out/output.jsonl
 ```
 
+### Null values
+
+Add `null_rate` to any field to make that fraction of its values null. The other rows keep exactly the values they would have without it.
+
+```bash
+cat > /tmp/nulls.yaml <<'EOF'
+seed: 7
+entities:
+  - name: User
+    count: 5
+    fields:
+      - name: id
+        gen: seq
+      - name: phone
+        gen: regex
+        config:
+          pattern: "555-[0-9]{4}"
+        null_rate: 0.4
+      - name: label
+        gen: template
+        config:
+          tpl: "user {id}: {phone}"
+EOF
+
+apery generate -f /tmp/nulls.yaml -o csv
+```
+
+JSONL writes `null`, CSV an empty cell. `expr` and `date_offset` return null when an input is null, `template` renders it as empty text, and `rel_ref` never picks a null.
+
 ### 2. Composite — Users with Addresses
 
 Create `examples/composite.yaml`:

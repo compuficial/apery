@@ -274,8 +274,28 @@ func TestDescribePlanSchema(t *testing.T) {
 	if code != exitOK || json.Unmarshal([]byte(stdout), &schema) != nil {
 		t.Fatalf("code=%d stdout=%.200s", code, stdout)
 	}
-	if schema["$schema"] == nil || !strings.Contains(stdout, `"const": "rel_ref"`) {
+	if schema["$schema"] == nil || !strings.Contains(stdout, `"const": "rel_ref"`) || !strings.Contains(stdout, `"null_rate"`) {
 		t.Fatalf("schema missing expected content: %.300s", stdout)
+	}
+}
+
+// A null renders as an empty CSV cell and a JSON null.
+func TestGenerate_NullRate(t *testing.T) {
+	path := writeFile(t, t.TempDir(), "plan.yaml", `seed: 1
+entities:
+  - name: U
+    count: 4
+    fields:
+      - {name: id, gen: seq}
+      - {name: x, gen: const, config: {value: v}, null_rate: 1}
+`)
+	stdout, stderr, code := runCLI(t, "generate", "-f", path, "-o", "csv")
+	if code != exitOK || stdout != "_entity,id,x\nU,1,\nU,2,\nU,3,\nU,4,\n" {
+		t.Fatalf("csv: code=%d stdout=%q stderr=%s", code, stdout, stderr)
+	}
+	stdout, _, code = runCLI(t, "generate", "-f", path, "--limit", "1")
+	if code != exitOK || stdout != `{"_entity":"U","id":1,"x":null}`+"\n" {
+		t.Fatalf("jsonl: code=%d stdout=%q", code, stdout)
 	}
 }
 

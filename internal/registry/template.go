@@ -34,7 +34,9 @@ func (tg *TemplateGenerator) NextWithRow(_ *rng.Rng, row RowContext) (any, error
 		if !ok {
 			return nil, fmt.Errorf("template: field '%s' not found in row context", part.value)
 		}
-		b.WriteString(fmt.Sprint(v))
+		if v != nil { // null renders as empty text
+			b.WriteString(fmt.Sprint(v))
+		}
 	}
 	return b.String(), nil
 }

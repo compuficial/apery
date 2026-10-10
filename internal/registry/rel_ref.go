@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/compuficial/apery/internal/rng"
 )
@@ -34,6 +35,14 @@ func (g *RelRefGenerator) BindStore(store ReadOnlyEntityStore) error {
 	}
 	if len(col) == 0 {
 		return fmt.Errorf("rel_ref: column %s.%s is empty", g.ref.Entity, g.ref.Field)
+	}
+
+	// Null values (from null_rate) are not references; skip them.
+	if slices.Contains(col, nil) {
+		col = slices.DeleteFunc(slices.Clone(col), func(v any) bool { return v == nil })
+		if len(col) == 0 {
+			return fmt.Errorf("rel_ref: column %s.%s holds only nulls", g.ref.Entity, g.ref.Field)
+		}
 	}
 	g.bindPool(col)
 	return nil

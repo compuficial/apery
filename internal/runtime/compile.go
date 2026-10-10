@@ -12,11 +12,12 @@ import (
 
 // compiledField is a plan field resolved against the registry.
 type compiledField struct {
-	name    string
-	gen     string
-	config  map[string]any // plan config plus the run's Env
-	factory registry.Factory
-	refs    []registry.ColumnRef // columns of earlier entities this field reads
+	name     string
+	gen      string
+	config   map[string]any // plan config plus the run's Env
+	factory  registry.Factory
+	refs     []registry.ColumnRef // columns of earlier entities this field reads
+	nullRate float64              // fraction of rows set to null
 }
 
 // compiledEntity is an entity whose generators have all been built once.
@@ -147,7 +148,7 @@ func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool) (
 		}
 	}
 
-	cf := compiledField{name: f.Name, gen: f.Gen, config: config, factory: factory}
+	cf := compiledField{name: f.Name, gen: f.Gen, config: config, factory: factory, nullRate: f.NullRate}
 	if sc, ok := gen.(registry.StoreConsumer); ok {
 		cf.refs = sc.StoreRefs()
 	}

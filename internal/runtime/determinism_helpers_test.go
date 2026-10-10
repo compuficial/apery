@@ -47,6 +47,9 @@ var scalarPlan = plan.Plan{
 			{Name: "local_ts", Gen: "time", Config: map[string]any{
 				"start": "2024-01-01", "end": "2024-12-31", "tz": "America/New_York",
 			}},
+			{Name: "nickname", Gen: "pick", Config: map[string]any{
+				"values": []any{"Ace", "Bee", "Cy"},
+			}, NullRate: 0.25},
 		}},
 	},
 }
@@ -108,6 +111,10 @@ var rowAwarePlan = plan.Plan{
 				},
 				"default": map[string]any{"gen": "const", "config": map[string]any{"value": "limited"}},
 			}},
+			// Nulls flow into row-aware fields: expr gives null, template "".
+			{Name: "bonus", Gen: "int", Config: map[string]any{"min": 1, "max": 10}, NullRate: 0.3},
+			{Name: "bonus_score", Gen: "expr", Config: map[string]any{"expr": "{bonus} * {score}"}},
+			{Name: "bonus_note", Gen: "template", Config: map[string]any{"tpl": "bonus={bonus}"}},
 		}},
 	},
 }
@@ -140,6 +147,9 @@ var relationalPlan = plan.Plan{
 				"entity": "Product", "field": "id",
 			}},
 			{Name: "rating", Gen: "int", Config: map[string]any{"min": 1, "max": 5}},
+			{Name: "referrer_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Customer", "field": "id",
+			}, NullRate: 0.4},
 		}},
 		// Unique draws: one batch per standalone entity, one per parent for
 		// driven_by. Both must be independent of chunk size and workers.

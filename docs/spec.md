@@ -104,9 +104,10 @@ type ParentField struct {
 }
 
 type FieldSpec struct {
-    Name   string         `yaml:"name"             json:"name"`
-    Gen    string         `yaml:"gen"              json:"gen"`
-    Config map[string]any `yaml:"config,omitempty" json:"config,omitempty"`
+    Name     string         `yaml:"name"                json:"name"`
+    Gen      string         `yaml:"gen"                 json:"gen"`
+    Config   map[string]any `yaml:"config,omitempty"    json:"config,omitempty"`
+    NullRate float64        `yaml:"null_rate,omitempty" json:"null_rate,omitempty"` // fraction of rows that are null (see 4.4)
 }
 ```
 
@@ -124,6 +125,11 @@ entities:
         gen: regex
         config:
           pattern: "[a-z]{5,10}@(gmail|yahoo)\\.com"
+      - name: phone
+        gen: regex
+        config:
+          pattern: "\\+1-[0-9]{3}-[0-9]{4}"
+        null_rate: 0.2          # 20% of users have no phone
 
   - name: Order
     driven_by:
@@ -167,6 +173,7 @@ Problems are returned as a `*plan.ValidationError` holding `Issue`s. Each issue 
 - At least one field must be defined.
 - Field names within an entity must be unique. The columns `driven_by` injects (`As`, every `expose` alias, and `index_as`) must be distinct from each other and must not collide with a declared field.
 - Config keys with a leading underscore (`_env`, etc.) are reserved and rejected.
+- `null_rate` is between 0 and 1 (`invalid_null_rate`).
 
 **Generators** (stage 2)
 - The generator exists (`unknown_generator`, with a "did you mean" hint).
@@ -178,8 +185,19 @@ Problems are returned as a `*plan.ValidationError` holding `Issue`s. Each issue 
 - A `DrivenBy` parent entity must be declared before the child.
 - `DrivenBy.Field` and every `DrivenBy.Expose[i].Field` must exist on the parent entity (including the parent's own injected columns, if any).
 - `DrivenBy.Min >= 1` and `DrivenBy.Max >= DrivenBy.Min`.
+- `DrivenBy.Field` must not have a `null_rate`: children would point at a null parent (`nullable_parent_key`). Exposed columns may be nullable.
 - A `rel_ref` target entity must be declared before the referencing entity, and the target field must exist on it.
 - For `unique: true` `rel_ref`, draws can't exceed the target entity's `Count`: per parent batch (`DrivenBy.Max`) in a `driven_by` entity, across the whole entity (`Count`) otherwise.
+
+### 4.4 Null values
+
+Any field can set `null_rate`, the fraction of rows (0 to 1) whose value is null. It works with every generator.
+
+- The null decision draws from its own seed stream (`Derive(fieldSeed, "null")`, then the row index), and the generator still runs on null rows. Rows that aren't null are identical to the same plan without `null_rate`, and stateful generators (`seq`, unique `rel_ref`) stay in step. A unique `rel_ref` still uses up a value on a null row.
+- Row-aware fields see the null: `expr` and `date_offset` return null when any input is null (as in SQL), `template` renders it as empty text, and `switch` matches a case named `"null"`, falling back to `default`.
+- `rel_ref` skips nulls in the target column: a null is not a reference. A target column holding only nulls is an error.
+- Output: JSONL writes `null`; CSV writes an empty cell.
+- Composite children (`object`, `list`, `one_of`, `switch` cases) don't take `null_rate`; set it on the top-level field.
 
 ---
 

@@ -51,6 +51,7 @@ entities:
 
 - Entities are processed **in declared order** — declare upstream entities before any that reference them via `rel_ref`.
 - Every field has `name`, `gen`, and an optional `config: {...}` block whose shape depends on the generator (use `apery describe generator <name>`).
+- For missing data, add `null_rate: 0.2` to a field (any generator). Nulls render as `null` in JSONL and an empty cell in CSV; `expr`/`date_offset` over a null give null, `template` renders it as empty text, and `rel_ref` never picks a null. Validation rejects `null_rate` on a `driven_by` parent key and inside composite children.
 - Set `seed` explicitly at the top level (it defaults to 0 when omitted). The user can override it at run time with `--seed`.
 - Plans are strict: every key must be one the schema or the generator declares. A typo fails validation with a "did you mean" suggestion.
 
