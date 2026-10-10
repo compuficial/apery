@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -232,6 +233,20 @@ func runPlanWithOpts(t *testing.T, p *plan.Plan, opts ...Option) []byte {
 	return buf.Bytes()
 }
 
+// dumpOutput saves data for debugging a failure and returns where. It uses
+// the system temp dir because t.TempDir is removed when the test ends.
+func dumpOutput(name string, data []byte) string {
+	f, err := os.CreateTemp("", "apery-"+name+"-*.jsonl")
+	if err != nil {
+		return "(not saved: " + err.Error() + ")"
+	}
+	_, err = f.Write(data)
+	if err = errors.Join(err, f.Close()); err != nil {
+		return "(not saved: " + err.Error() + ")"
+	}
+	return f.Name()
+}
+
 // computeDigest returns the SHA-256 hex string of the given bytes.
 func computeDigest(data []byte) string {
 	h := sha256.Sum256(data)
@@ -289,10 +304,8 @@ func compareGolden(t *testing.T, name string, data []byte) {
 	gotDigest := computeDigest(data)
 
 	if gotDigest != string(wantDigest) {
-		actualPath := filepath.Join(t.TempDir(), name+".actual.jsonl")
-		os.WriteFile(actualPath, data, 0644)
 		t.Fatalf("digest mismatch for %s:\n  want: %s\n  got:  %s\n  actual output dumped to: %s",
-			name, wantDigest, gotDigest, actualPath)
+			name, wantDigest, gotDigest, dumpOutput(name+".actual", data))
 	}
 
 	spotPath := filepath.Join(goldenDir, name+".jsonl")

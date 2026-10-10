@@ -2,6 +2,7 @@ package registry
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,8 +78,8 @@ func fileValues(fileVal any, env *Env, gen string) ([]any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: cannot open file: %w", gen, err)
 		}
-		defer file.Close()
-		return readLines(file, "file", gen)
+		values, err := readLines(file, "file", gen)
+		return values, errors.Join(err, file.Close())
 	})
 }
 
@@ -113,12 +114,14 @@ func urlValues(urlVal any, allowlistVal any, env *Env, gen string) ([]any, error
 		if err != nil {
 			return nil, fmt.Errorf("%s: cannot fetch url: %w", gen, err)
 		}
-		defer resp.Body.Close()
 
+		var values []any
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("%s: url returned status %d", gen, resp.StatusCode)
+			err = fmt.Errorf("%s: url returned status %d", gen, resp.StatusCode)
+		} else {
+			values, err = readLines(io.LimitReader(resp.Body, maxSourceURLBytes), "url", gen)
 		}
-		return readLines(io.LimitReader(resp.Body, maxSourceURLBytes), "url", gen)
+		return values, errors.Join(err, resp.Body.Close())
 	})
 }
 

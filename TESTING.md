@@ -56,5 +56,6 @@ go test ./internal/registry -run Determinism
 gofmt -l .                                              # must print nothing
 go vet ./...
 go run honnef.co/go/tools/cmd/staticcheck@v0.7.0-0.dev.0.20261009230814-452d5bb86b45 ./...  # same pin as ci.yml
+golangci-lint run ./...                                  # default linters; keep at 0 issues (local only, not in CI)
 go test -race ./...
 ```

@@ -80,7 +80,7 @@ func addRunFlags(cmd *cobra.Command) {
 	f.StringSlice("entities", nil, "Write only these entities (comma-separated); entities they reference are generated but not written")
 	f.Bool("verbose", false, "Show entity progress on stderr")
 	f.Bool("debug", false, "Show detailed debug output on stderr")
-	cmd.MarkFlagRequired("file")
+	markRequired(cmd, "file")
 }
 
 // runOptions are the parsed flags generate and verify share.
@@ -149,7 +149,9 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		printSummary(cmd.OutOrStdout(), p, o.limit, sel)
+		if err := printSummary(cmd.OutOrStdout(), p, o.limit, sel); err != nil {
+			return withCode(exitIO, err)
+		}
 		return nil
 	}
 
@@ -242,12 +244,14 @@ func uniqueNames(names []string) []string {
 // printSummary renders the dry-run preview: rows (exact, or min-max with
 // the expected count for driven_by) and columns per entity. Entities outside
 // the selection are left out, and dependencies are marked.
-func printSummary(w io.Writer, p *plan.Plan, limit int64, sel runtime.Selection) {
-	fmt.Fprintln(w, "Plan is valid.")
-	fmt.Fprintln(w)
+func printSummary(w io.Writer, p *plan.Plan, limit int64, sel runtime.Selection) error {
+	out := &printer{w: w}
+	out.println("Plan is valid.")
+	out.println()
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ENTITY\tROWS\tCOLUMNS")
+	table := &printer{w: tw}
+	table.println("ENTITY\tROWS\tCOLUMNS")
 	for _, s := range plan.Summarize(p) {
 		name := s.Name
 		switch {
@@ -266,14 +270,16 @@ func printSummary(w io.Writer, p *plan.Plan, limit int64, sel runtime.Selection)
 		if rows.Max != rows.Min {
 			count = fmt.Sprintf("%d-%d (~%.0f)", rows.Min, rows.Max, rows.Expected)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", name, count, strings.Join(s.Columns, ", "))
+		table.printf("%s\t%s\t%s\n", name, count, strings.Join(s.Columns, ", "))
 	}
-	tw.Flush()
+	table.check(tw.Flush())
+	out.check(table.err)
 
 	if len(sel.Dependencies) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "(dependency): generated because written entities reference it, but not written.")
+		out.println()
+		out.println("(dependency): generated because written entities reference it, but not written.")
 	}
+	return out.err
 }
 
 // output is where generated records go. Files are written to a staging
@@ -320,12 +326,13 @@ func newOutput(o runOptions, stdout io.Writer) (*output, error) {
 	return out, nil
 }
 
-// commit moves staged files into the output directory.
-func (o *output) commit() error {
+// commit moves staged files into the output directory, then removes the
+// emptied staging directory.
+func (o *output) commit() (err error) {
 	if o.staging == "" {
 		return nil
 	}
-	defer os.RemoveAll(o.staging)
+	defer func() { err = errors.Join(err, os.RemoveAll(o.staging)) }()
 
 	entries, err := os.ReadDir(o.staging)
 	if err != nil {
@@ -339,9 +346,10 @@ func (o *output) commit() error {
 	return nil
 }
 
-// discard removes staged files after a failed run.
+// discard removes staged files after a failed run. It is best effort: the
+// run's own error is the one to report.
 func (o *output) discard() {
 	if o.staging != "" {
-		os.RemoveAll(o.staging)
+		_ = os.RemoveAll(o.staging)
 	}
 }

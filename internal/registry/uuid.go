@@ -26,7 +26,7 @@ type UUIDGenerator struct{}
 // Next returns the next generated UUID string.
 func (u *UUIDGenerator) Next(r *rng.Rng) (any, error) {
 	var bytes [uuidByteLength]byte
-	r.Read(bytes[:])
+	_, _ = r.Read(bytes[:]) // Rng.Read never fails
 
 	// Set version 4 and RFC 4122 variant
 	bytes[versionByteIndex] = (bytes[versionByteIndex] & versionMask) | version4

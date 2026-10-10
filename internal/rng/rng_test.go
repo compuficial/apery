@@ -109,7 +109,9 @@ func TestReseedMatchesNew(t *testing.T) {
 // Read fills 8 bytes per 64-bit draw, little-endian.
 func TestReadUsesWholeWords(t *testing.T) {
 	buf := make([]byte, 12)
-	New(SeedFromInt64(8)).Read(buf)
+	if _, err := New(SeedFromInt64(8)).Read(buf); err != nil {
+		t.Fatal(err)
+	}
 
 	src := rand.New(rand.NewPCG(uint64(SeedFromInt64(8)), 0))
 	want := make([]byte, 16)

@@ -60,7 +60,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 	if !errors.Is(err, errReported) {
-		fmt.Fprintln(stderr, "Error:", err)
+		_, _ = fmt.Fprintln(stderr, "Error:", err) // if stderr fails, nothing is left to tell
 	}
 	return exitCode(err)
 }
@@ -102,8 +102,9 @@ or 'apery list generators' to discover available generators.`,
 		&cobra.Command{
 			Use:   "version",
 			Short: "Print the version",
-			Run: func(cmd *cobra.Command, args []string) {
-				fmt.Fprintln(cmd.OutOrStdout(), "apery version", Version)
+			RunE: func(cmd *cobra.Command, args []string) error {
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), "apery version", Version)
+				return err
 			},
 		},
 		newGenerateCmd(),

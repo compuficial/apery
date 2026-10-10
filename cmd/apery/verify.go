@@ -38,7 +38,7 @@ the plan no longer has is a difference too. Exit code 4 means the files differ.`
 	}
 	addRunFlags(cmd)
 	cmd.Flags().String("report", "text", "Report format: text, json")
-	cmd.MarkFlagRequired("output-dir")
+	markRequired(cmd, "output-dir")
 	return cmd
 }
 
