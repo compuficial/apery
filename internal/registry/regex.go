@@ -153,7 +153,7 @@ func getRepeatBounds(re *syntax.Regexp, maxRepeat int) (int, int, error) {
 			max = maxRepeat
 		}
 		if min > maxRepeat {
-			return 0, 0, fmt.Errorf("regex: repeat minimum %d exceeds max_repeat %d", min, maxRepeat)
+			return 0, 0, fmt.Errorf("regex: repeat minimum %d exceeds max_repeat %d; set max_repeat to at least %d", min, maxRepeat, min)
 		}
 		if max < min {
 			return 0, 0, fmt.Errorf("regex: repeat maximum %d is less than minimum %d after applying max_repeat", max, min)
@@ -201,7 +201,28 @@ func validateRegexConfig(config map[string]any) (*syntax.Regexp, int, error) {
 		maxRepeat = int(m)
 	}
 
+	if err := checkRepeats(re, maxRepeat); err != nil {
+		return nil, 0, err
+	}
 	return re, maxRepeat, nil
+}
+
+// checkRepeats applies generation's repeat rules to every quantifier up
+// front, so a pattern max_repeat can't satisfy fails validation instead of
+// the first row.
+func checkRepeats(re *syntax.Regexp, maxRepeat int) error {
+	switch re.Op {
+	case syntax.OpStar, syntax.OpPlus, syntax.OpQuest, syntax.OpRepeat:
+		if _, _, err := getRepeatBounds(re, maxRepeat); err != nil {
+			return err
+		}
+	}
+	for _, sub := range re.Sub {
+		if err := checkRepeats(sub, maxRepeat); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateRegexAST ensures the pattern can be generated deterministically.
@@ -340,7 +361,7 @@ func init() {
 		Description: "String matching a regex pattern subset",
 		ConfigKeys: []ConfigKey{
 			{Name: "pattern", Type: "string", Required: true, Desc: "Regex pattern to generate from"},
-			{Name: "max_repeat", Type: "int", Desc: "Maximum repeat for unbounded quantifiers (default 10)", Default: "10"},
+			{Name: "max_repeat", Type: "int", Desc: "Cap on repeats: bounds *, +, {m,} and {m,n}; must be >= every repeat minimum (default 10)", Default: "10"},
 		},
 		Example: `- name: phone
   gen: regex

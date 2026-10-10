@@ -275,7 +275,7 @@ The `regex` generator supports the generatable portion of RE2:
 - **Supported**: literals, concatenation, alternation, grouping, character classes (including Unicode), quantifiers (`*`, `+`, `?`, `{m}`, `{m,n}`, `{m,}`), anchors `^` and `$` at start/end only.
 - **Rejected with a validation error**: word boundaries (`\b`/`\B`), lookahead, lookbehind, backreferences, recursion, conditionals.
 - **Character domain**: `.` generates printable ASCII (32–126). Character classes are rune-based and cover full Unicode.
-- Unbounded quantifiers are capped by `max_repeat` (default 10).
+- Unbounded quantifiers are capped by `max_repeat` (default 10), and so is the upper bound of `{m,n}`. A repeat whose minimum exceeds `max_repeat` (`{40,80}` with the default) fails validation; raise `max_repeat` to at least the minimum.
 
 ---
 

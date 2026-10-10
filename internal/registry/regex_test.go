@@ -3,6 +3,7 @@ package registry
 import (
 	"github.com/compuficial/apery/internal/rng"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,14 @@ func TestRegexGenerator_Config(t *testing.T) {
 		{Name: "invalid max_repeat type string", Config: map[string]any{"pattern": "a", "max_repeat": "5"}, ExpectError: true},
 		{Name: "invalid max_repeat type float", Config: map[string]any{"pattern": "a", "max_repeat": 5.5}, ExpectError: true},
 		{Name: "max_repeat zero", Config: map[string]any{"pattern": "a", "max_repeat": 0}, ExpectError: true},
+		// A repeat max_repeat can't reach fails at config time, not on the
+		// first row.
+		{Name: "repeat above default max_repeat", Config: map[string]any{"pattern": "[a-z]{40,80}"}, ExpectError: true},
+		{Name: "exact repeat above max_repeat", Config: map[string]any{"pattern": "(ab){11}"}, ExpectError: true},
+		{Name: "nested repeat above max_repeat", Config: map[string]any{"pattern": "x{3}(y{12})?"}, ExpectError: true},
+		{Name: "repeat within raised max_repeat", Config: map[string]any{"pattern": "[a-z]{40,80}", "max_repeat": 100}, ExpectError: false},
+		{Name: "repeat equal to max_repeat", Config: map[string]any{"pattern": "a{10}"}, ExpectError: false},
+		{Name: "open repeat capped by max_repeat", Config: map[string]any{"pattern": "a{3,}"}, ExpectError: false},
 		{Name: "max_repeat negative", Config: map[string]any{"pattern": "a", "max_repeat": -1}, ExpectError: true},
 		{Name: "word boundary unsupported", Config: map[string]any{"pattern": `foo\bbar`}, ExpectError: true},
 		{Name: "anchor inside quantifier", Config: map[string]any{"pattern": `(^a)+`}, ExpectError: true},
@@ -136,15 +145,12 @@ func TestRegexGenerator_QuantifierBounds(t *testing.T) {
 	}
 }
 
+// A repeat minimum above max_repeat is a config error, caught before any
+// value is generated.
 func TestRegexGenerator_MaxRepeatMinError(t *testing.T) {
-	gen, err := Get(regexGen, map[string]any{"pattern": "a{100,}", "max_repeat": 10})
-	if err != nil {
-		t.Fatalf("failed to create generator: %v", err)
-	}
-
-	r := rng.New(rng.SeedFromInt64(testSeed))
-	if _, err := gen.Next(r); err == nil {
-		t.Fatalf("expected error when min exceeds max_repeat")
+	_, err := Get(regexGen, map[string]any{"pattern": "a{100,}", "max_repeat": 10})
+	if err == nil || !strings.Contains(err.Error(), "set max_repeat to at least 100") {
+		t.Fatalf("error = %v, want a config error naming the max_repeat needed", err)
 	}
 }
 
