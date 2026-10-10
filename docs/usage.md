@@ -119,7 +119,7 @@ EOF
 apery generate -f /tmp/nulls.yaml -o csv
 ```
 
-JSONL writes `null`, CSV an empty cell. `expr` and `date_offset` return null when an input is null, `template` renders it as empty text, and `rel_ref` never picks a null.
+JSONL writes `null`, CSV an empty cell. `expr` and `date_offset` return null when an input is null, `template` renders it as empty text, and `rel_ref` never picks a null. Composite children take `null_rate` too, nulling just that child: `fields: {email: {gen: regex, config: {...}, null_rate: 0.4}}` inside an `object`.
 
 ### Realistic shapes and event streams
 

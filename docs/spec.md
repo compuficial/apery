@@ -197,7 +197,7 @@ Any field can set `null_rate`, the fraction of rows (0 to 1) whose value is null
 - Row-aware fields see the null: `expr` and `date_offset` return null when any input is null (as in SQL), `template` renders it as empty text, and `switch` matches a case named `"null"`, falling back to `default`.
 - `rel_ref` skips nulls in the target column: a null is not a reference. A target column holding only nulls is an error.
 - Output: JSONL writes `null`; CSV writes an empty cell.
-- Composite children (`object`, `list`, `one_of`, `switch` cases) don't take `null_rate`; set it on the top-level field.
+- Composite children (`object` fields, `list` items, `one_of` generators, `switch` cases and default) take `null_rate` too: `{gen: int, config: {...}, null_rate: 0.3}` nulls that child's value, not the whole field. The decision draws from `Derive(childSeed, "null")` after the child runs, with the same guarantees as above.
 
 ---
 
@@ -244,7 +244,7 @@ Any field can set `null_rate`, the fraction of rows (0 to 1) whose value is null
 
 `template` and `switch` are **row-aware**: they read previously generated fields in the current row. Both declare their field dependencies so the executor can enforce earlier-field ordering.
 
-Composites can nest each other freely, but not stateful or entity-reading generators, and (except `switch` cases) not row-aware ones; see §4.3. Each child spec takes only `gen` and `config`.
+Composites can nest each other freely, but not stateful or entity-reading generators, and (except `switch` cases) not row-aware ones; see §4.3. Each child spec takes only `gen`, `config`, and `null_rate` (§4.4).
 
 ### 5.3 Computed (row-aware)
 

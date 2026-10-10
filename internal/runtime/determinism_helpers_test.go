@@ -95,6 +95,22 @@ var compositePlan = plan.Plan{
 				},
 				"weights": []any{7.0, 3.0},
 			}},
+			// Composite children with null_rate: an object field and the
+			// items of a nested list.
+			{Name: "contact", Gen: "object", Config: map[string]any{
+				"fields": map[string]any{
+					"email": map[string]any{"gen": "regex", "config": map[string]any{
+						"pattern": "[a-z]{5}@example\\.com",
+					}, "null_rate": 0.4},
+					"phones": map[string]any{"gen": "list", "config": map[string]any{
+						"item": map[string]any{"gen": "regex", "config": map[string]any{
+							"pattern": "555-[0-9]{4}",
+						}, "null_rate": 0.2},
+						"min_len": 1,
+						"max_len": 3,
+					}},
+				},
+			}},
 		}},
 	},
 }
@@ -123,6 +139,15 @@ var rowAwarePlan = plan.Plan{
 			{Name: "bonus", Gen: "int", Config: map[string]any{"min": 1, "max": 10}, NullRate: 0.3},
 			{Name: "bonus_score", Gen: "expr", Config: map[string]any{"expr": "{bonus} * {score}"}},
 			{Name: "bonus_note", Gen: "template", Config: map[string]any{"tpl": "bonus={bonus}"}},
+			{Name: "perk", Gen: "switch", Config: map[string]any{
+				"key": "department",
+				"cases": map[string]any{
+					"engineering": map[string]any{"gen": "template", "config": map[string]any{
+						"tpl": "{department} laptop",
+					}, "null_rate": 0.5},
+				},
+				"default": map[string]any{"gen": "const", "config": map[string]any{"value": "none"}},
+			}},
 		}},
 	},
 }

@@ -81,7 +81,7 @@ func init() {
 	MustRegisterInfo("object", GeneratorInfo{
 		Description: "Nested object with named sub-fields",
 		ConfigKeys: []ConfigKey{
-			{Name: "fields", Type: "map[string]any", Required: true, Desc: "Map of field names to sub-generator specs ({gen, config})"},
+			{Name: "fields", Type: "map[string]any", Required: true, Desc: "Map of field names to sub-generator specs ({gen, config, null_rate})"},
 		},
 		Example: `- name: address
   gen: object
