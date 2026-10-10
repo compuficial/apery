@@ -136,28 +136,63 @@ func (r *Rng) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Zipf samples a Zipf distribution with skewness s (> 1), offset v (>= 1),
-// and maximum value imax. The stdlib sampler precomputes constants and binds
-// to one source, so it is rebuilt only when a different Rng is passed in;
-// callers that reseed one Rng per row pay that cost once. Not safe for
-// concurrent use.
+// Zipf samples a Zipf distribution: P(k) is proportional to (v+k)^-s for k
+// in [0, imax], with s > 1 and v >= 1. It is math/rand/v2's
+// rejection-inversion sampler (Hörmann and Derflinger) with the same
+// constants and the same draws from the Rng, computed with portable math so
+// every architecture gets the same values. A Zipf holds no per-draw state, so
+// goroutines may share one as long as each passes its own Rng.
 type Zipf struct {
-	s, v    float64
-	imax    uint64
-	src     *rand.Rand
-	sampler *rand.Zipf
+	s, v, imax              float64 // parameters from NewZipf
+	oneMinusS, invOneMinusS float64 // 1-s and 1/(1-s)
+	hImax, span, squeeze    float64 // h(imax+0.5), the range of h, and the quick-accept bound
 }
 
-// NewZipf creates a Zipf sampler.
-func NewZipf(s float64, v float64, imax uint64) *Zipf {
-	return &Zipf{s: s, v: v, imax: imax}
+// NewZipf returns a sampler for s > 1 and v >= 1; callers validate both.
+func NewZipf(s, v float64, imax uint64) *Zipf {
+	z := &Zipf{s: s, v: v, imax: float64(imax)}
+	z.oneMinusS = 1 - s
+	z.invOneMinusS = 1 / z.oneMinusS
+	z.hImax = z.h(z.imax + 0.5)
+	z.span = z.bound(0) - z.hImax
+	z.squeeze = 1 - z.hinv(z.bound(1))
+	return z
 }
 
 // Uint64 draws one value in [0, imax] from r.
 func (z *Zipf) Uint64(r *Rng) uint64 {
-	if z.src != r.r {
-		z.src = r.r
-		z.sampler = rand.NewZipf(r.r, z.s, z.v, z.imax)
+	for {
+		ur, x := z.invert(r.Float64())
+		k := math.Floor(x + 0.5)
+		if k-x <= z.squeeze || ur >= z.bound(k) {
+			return uint64(k)
+		}
 	}
-	return z.sampler.Uint64()
+}
+
+// invert maps a uniform u in [0, 1) to a point ur under the hat function
+// and the candidate x = hinv(ur).
+func (z *Zipf) invert(u float64) (ur, x float64) {
+	ur = z.hImax + float64(u*z.span)
+	return ur, z.hinv(ur)
+}
+
+// bound is the acceptance threshold for candidate k.
+func (z *Zipf) bound(k float64) float64 {
+	return z.h(k+0.5) - z.weight(k)
+}
+
+// weight is the unnormalized probability (v+k)^-s.
+func (z *Zipf) weight(k float64) float64 {
+	return portableExp(float64(-z.s * portableLog(z.v+k)))
+}
+
+// h is the integral of the hat function.
+func (z *Zipf) h(x float64) float64 {
+	return float64(portableExp(float64(z.oneMinusS*portableLog(z.v+x))) * z.invOneMinusS)
+}
+
+// hinv is the inverse of h.
+func (z *Zipf) hinv(x float64) float64 {
+	return portableExp(float64(z.invOneMinusS*portableLog(float64(z.oneMinusS*x)))) - z.v
 }
