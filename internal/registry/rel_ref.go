@@ -1,79 +1,144 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+
+	"github.com/compuficial/apery/internal/rng"
 )
 
 const (
-	maxUniqueRetries = 100
-	distUniform      = "uniform"
-	distZipf         = "zipf"
+	distUniform = "uniform"
+	distZipf    = "zipf"
 )
 
 // RelRefGenerator samples values from a previously generated entity's column.
-// It reads from a ReadOnlyEntityStore injected via the "_store" config key.
+// The executor binds the column via BindStore before generating.
 type RelRefGenerator struct {
-	entity string
-	field  string
-	store  ReadOnlyEntityStore
-	dist   string // distUniform or distZipf
-	zipfS  float64
+	ref  ColumnRef
+	dist string    // distUniform or distZipf
+	zipf *rng.Zipf // set when dist is distZipf, after binding
+	s    float64   // zipf skewness
+	pool []any     // bound column
+}
 
-	// unique tracking (stateful across Next calls within a parent batch)
-	unique bool
-	seen   map[any]bool
+// StoreRefs names the column this generator samples from.
+func (g *RelRefGenerator) StoreRefs() []ColumnRef {
+	return []ColumnRef{g.ref}
+}
+
+// BindStore resolves the referenced column once per instance.
+func (g *RelRefGenerator) BindStore(store ReadOnlyEntityStore) error {
+	col, ok := store.GetColumn(g.ref.Entity, g.ref.Field)
+	if !ok {
+		return fmt.Errorf("rel_ref: column %s.%s not found in store", g.ref.Entity, g.ref.Field)
+	}
+	if len(col) == 0 {
+		return fmt.Errorf("rel_ref: column %s.%s is empty", g.ref.Entity, g.ref.Field)
+	}
+	g.bindPool(col)
+	return nil
+}
+
+func (g *RelRefGenerator) bindPool(pool []any) {
+	g.pool = pool
+	if g.dist == distZipf {
+		g.zipf = rng.NewZipf(g.s, 1.0, uint64(len(pool)-1))
+	}
 }
 
 // Next returns a value sampled from the referenced entity's column.
-// Returns an error if the store has not been injected.
 func (g *RelRefGenerator) Next(r *rng.Rng) (any, error) {
-	if g.store == nil {
-		return nil, fmt.Errorf("rel_ref: entity store not available (internal error)")
+	if g.pool == nil {
+		return nil, fmt.Errorf("rel_ref: entity store not bound (internal error)")
+	}
+	return g.pool[g.sampleIndex(r)], nil
+}
+
+func (g *RelRefGenerator) sampleIndex(r *rng.Rng) int64 {
+	if g.dist == distZipf {
+		return int64(g.zipf.Uint64(r))
+	}
+	return r.IntRange(0, int64(len(g.pool)-1))
+}
+
+// uniqueRelRef draws distinct values without replacement within a batch (a
+// driven_by parent's children, or a whole standalone entity). Uniqueness is
+// by value: the pool is deduplicated at bind time.
+type uniqueRelRef struct {
+	RelRefGenerator
+
+	// Uniform: sparse Fisher-Yates. Positions [0, drawn) of a virtual
+	// permutation of pool indices are used; swapped holds the positions that
+	// differ from identity, so each draw is O(1) whatever the pool size.
+	swapped map[int64]int64
+	// Zipf: indices already drawn; collisions probe to the next free index.
+	taken map[int64]bool
+	drawn int64
+}
+
+// BindStore resolves the column and keeps one copy of each distinct value.
+func (g *uniqueRelRef) BindStore(store ReadOnlyEntityStore) error {
+	if err := g.RelRefGenerator.BindStore(store); err != nil {
+		return err
 	}
 
-	col, ok := g.store.GetColumn(g.entity, g.field)
-	if !ok {
-		return nil, fmt.Errorf("rel_ref: column %s.%s not found in store", g.entity, g.field)
-	}
-	if len(col) == 0 {
-		return nil, fmt.Errorf("rel_ref: column %s.%s is empty", g.entity, g.field)
-	}
-
-	n := int64(len(col))
-
-	if !g.unique {
-		idx := g.sampleIndex(r, n)
-		return col[idx], nil
-	}
-
-	// Unique mode: retry on collision.
-	for range maxUniqueRetries {
-		idx := g.sampleIndex(r, n)
-		val := col[idx]
-		if !g.seen[val] {
-			g.seen[val] = true
-			return val, nil
+	seen := make(map[any]bool, len(g.pool))
+	distinct := make([]any, 0, len(g.pool))
+	for _, v := range g.pool {
+		switch v.(type) {
+		case map[string]any, []any:
+			return fmt.Errorf("rel_ref: unique needs scalar values, but %s.%s holds %T", g.ref.Entity, g.ref.Field, v)
+		}
+		if !seen[v] {
+			seen[v] = true
+			distinct = append(distinct, v)
 		}
 	}
-
-	return nil, fmt.Errorf("rel_ref: unique constraint failed after %d retries (pool: %s.%s)",
-		maxUniqueRetries, g.entity, g.field)
+	g.bindPool(distinct)
+	return nil
 }
 
-// Reset clears the uniqueness tracker between parent batches.
-func (g *RelRefGenerator) Reset() {
-	if g.seen != nil {
-		clear(g.seen)
+// Next draws a value not yet drawn in this batch.
+func (g *uniqueRelRef) Next(r *rng.Rng) (any, error) {
+	if g.pool == nil {
+		return nil, fmt.Errorf("rel_ref: entity store not bound (internal error)")
 	}
-}
+	n := int64(len(g.pool))
+	if g.drawn >= n {
+		return nil, fmt.Errorf("rel_ref: unique pool exhausted: %s.%s has %d distinct values", g.ref.Entity, g.ref.Field, n)
+	}
 
-func (g *RelRefGenerator) sampleIndex(r *rng.Rng, n int64) int64 {
+	var idx int64
 	if g.dist == distZipf {
-		z := r.NewZipf(g.zipfS, 1.0, uint64(n-1))
-		return int64(z.Uint64())
+		idx = g.sampleIndex(r)
+		for g.taken[idx] {
+			idx = (idx + 1) % n
+		}
+		g.taken[idx] = true
+	} else {
+		pick := g.drawn + r.IntRange(0, n-1-g.drawn)
+		idx = g.at(pick)
+		g.swapped[pick] = g.at(g.drawn)
+		delete(g.swapped, g.drawn) // position drawn is never read again
 	}
-	return r.IntRange(0, n-1)
+
+	g.drawn++
+	return g.pool[idx], nil
+}
+
+// at returns the pool index at a permutation position.
+func (g *uniqueRelRef) at(pos int64) int64 {
+	if idx, ok := g.swapped[pos]; ok {
+		return idx
+	}
+	return pos
+}
+
+// Reset starts a new batch.
+func (g *uniqueRelRef) Reset() {
+	clear(g.swapped)
+	clear(g.taken)
+	g.drawn = 0
 }
 
 func init() {
@@ -120,28 +185,15 @@ func init() {
 			unique = ub
 		}
 
-		// Store is optional at factory time (nil during initFields validation).
-		var store ReadOnlyEntityStore
-		if s, exists := config["_store"]; exists && s != nil {
-			store, ok = s.(ReadOnlyEntityStore)
-			if !ok {
-				return nil, fmt.Errorf("rel_ref: '_store' has wrong type")
-			}
+		base := RelRefGenerator{ref: ColumnRef{Entity: entity, Field: field}, dist: dist, s: zipfS}
+		if !unique {
+			return &base, nil
 		}
-
-		gen := &RelRefGenerator{
-			entity: entity,
-			field:  field,
-			store:  store,
-			dist:   dist,
-			zipfS:  zipfS,
-			unique: unique,
-		}
-		if unique {
-			gen.seen = make(map[any]bool)
-		}
-
-		return gen, nil
+		return &uniqueRelRef{
+			RelRefGenerator: base,
+			swapped:         make(map[int64]int64),
+			taken:           make(map[int64]bool),
+		}, nil
 	})
 	MustRegisterInfo("rel_ref", GeneratorInfo{
 		Description: "Foreign key sampling from a previously generated entity",
@@ -149,8 +201,8 @@ func init() {
 			{Name: "entity", Type: "string", Required: true, Desc: "Source entity name"},
 			{Name: "field", Type: "string", Required: true, Desc: "Source field name"},
 			{Name: "distribution", Type: "string", Desc: "Distribution: uniform (default) or zipf", Default: "uniform"},
-			{Name: "s", Type: "float", Desc: "Zipf skewness parameter (only with distribution: zipf)"},
-			{Name: "unique", Type: "bool", Desc: "Deduplicate within parent batch (default false)", Default: "false"},
+			{Name: "s", Type: "float", Desc: "Zipf skewness parameter (only with distribution: zipf)", Default: "1.5"},
+			{Name: "unique", Type: "bool", Desc: "Draw distinct values without replacement within each parent batch (driven_by) or the whole entity", Default: "false"},
 		},
 		Example: `- name: user_id
   gen: rel_ref

@@ -50,24 +50,11 @@ go test ./internal/registry -run Config
 go test ./internal/registry -run Determinism
 ```
 
-## Quick reference for current work
+## Before pushing (what CI runs)
 
 ```bash
-# Test the seq generator
-go test -v ./internal/registry -run Seq
-
-# Test the pick generator
-go test -v ./internal/registry -run Pick
-
-# Test the int generator
-go test -v ./internal/registry -run Int
-
-# Test the float generator
-go test -v ./internal/registry -run Float
-
-# Test the uuid generator
-go test -v ./internal/registry -run UUID
-
-# Test the bool generator
-go test -v ./internal/registry -run Bool
+gofmt -l .                                              # must print nothing
+go vet ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...  # needs a Go 1.24 toolchain: GOTOOLCHAIN=go1.24.3
+go test -race ./...
 ```

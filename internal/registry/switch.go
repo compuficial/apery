@@ -1,8 +1,10 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"sort"
+
+	"github.com/compuficial/apery/internal/rng"
 )
 
 // SwitchGenerator dispatches to sub-generators based on a key field's value from the current row.
@@ -11,6 +13,7 @@ type SwitchGenerator struct {
 	cases    map[string]Generator
 	fallback Generator // optional
 	deps     []string
+	scratch  *rng.Rng // reseeded per row; instances are chunk-local
 }
 
 // Next returns an error because switch requires row context.
@@ -35,11 +38,11 @@ func (s *SwitchGenerator) NextWithRow(r *rng.Rng, row RowContext) (any, error) {
 		}
 	}
 
-	valueRng := rng.New(rng.Derive(r.GetSeed(), "__value__"))
+	s.scratch.Reseed(rng.Derive(r.GetSeed(), "__value__"))
 	if ra, ok := gen.(RowAwareGenerator); ok {
-		return ra.NextWithRow(valueRng, row)
+		return ra.NextWithRow(s.scratch, row)
 	}
-	return gen.Next(valueRng)
+	return gen.Next(s.scratch)
 }
 
 // Dependencies returns the key field plus any transitive dependencies from row-aware sub-generators.
@@ -64,24 +67,6 @@ func collectSwitchDeps(key string, gens []Generator) []string {
 	return deps
 }
 
-func instantiateSubGenerator(spec map[string]any, context string) (Generator, error) {
-	genName, ok := spec["gen"].(string)
-	if !ok || genName == "" {
-		return nil, fmt.Errorf("switch: %s missing 'gen'", context)
-	}
-
-	genConfig, _ := spec["config"].(map[string]any)
-	if genConfig == nil {
-		genConfig = map[string]any{}
-	}
-
-	gen, err := Get(genName, genConfig)
-	if err != nil {
-		return nil, fmt.Errorf("switch: %s: %w", context, err)
-	}
-	return gen, nil
-}
-
 func init() {
 	MustRegister("switch", func(config map[string]any) (Generator, error) {
 		key, ok := config["key"].(string)
@@ -103,12 +88,14 @@ func init() {
 
 		cases := make(map[string]Generator, len(casesMap))
 		allGens := make([]Generator, 0, len(casesMap)+1)
-		for caseName, rawSpec := range casesMap {
-			spec, ok := rawSpec.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("switch: case '%s' must be a map, got %T", caseName, rawSpec)
-			}
-			gen, err := instantiateSubGenerator(spec, fmt.Sprintf("case '%s'", caseName))
+		caseNames := make([]string, 0, len(casesMap))
+		for caseName := range casesMap {
+			caseNames = append(caseNames, caseName)
+		}
+		sort.Strings(caseNames) // deterministic error reporting and dependency order
+		for _, caseName := range caseNames {
+			where := fmt.Sprintf("switch: case '%s'", caseName)
+			gen, err := buildSubGenerator(casesMap[caseName], config, where, nestRowAware)
 			if err != nil {
 				return nil, err
 			}
@@ -118,11 +105,7 @@ func init() {
 
 		var fallback Generator
 		if rawDefault, ok := config["default"]; ok {
-			spec, ok := rawDefault.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("switch: 'default' must be a map, got %T", rawDefault)
-			}
-			gen, err := instantiateSubGenerator(spec, "default")
+			gen, err := buildSubGenerator(rawDefault, config, "switch: default", nestRowAware)
 			if err != nil {
 				return nil, err
 			}
@@ -137,6 +120,7 @@ func init() {
 			cases:    cases,
 			fallback: fallback,
 			deps:     deps,
+			scratch:  rng.New(0),
 		}, nil
 	})
 	MustRegisterInfo("switch", GeneratorInfo{

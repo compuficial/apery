@@ -1,8 +1,8 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 )
 
 // Default values for Zipf parameters
@@ -15,15 +15,12 @@ const (
 // ZipfGenerator generates random int64 values following a Zipf distribution.
 // Useful for modeling "long tail" patterns like word frequencies or popularity rankings.
 type ZipfGenerator struct {
-	s    float64
-	v    float64
-	imax uint64
+	sampler *rng.Zipf
 }
 
 // Next returns the next Zipf-distributed value as int64
 func (g *ZipfGenerator) Next(r *rng.Rng) (any, error) {
-	z := r.NewZipf(g.s, g.v, g.imax)
-	return int64(z.Uint64()), nil
+	return int64(g.sampler.Uint64(r)), nil
 }
 
 // validateZipfConfig validates and parses config for zipf generator
@@ -82,11 +79,7 @@ func init() {
 		if err != nil {
 			return nil, err
 		}
-		return &ZipfGenerator{
-			s:    s,
-			v:    v,
-			imax: imax,
-		}, nil
+		return &ZipfGenerator{sampler: rng.NewZipf(s, v, imax)}, nil
 	})
 	MustRegisterInfo("zipf", GeneratorInfo{
 		Description: "Zipf-distributed integer for long-tail patterns",

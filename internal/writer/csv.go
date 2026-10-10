@@ -2,17 +2,22 @@ package writer
 
 import (
 	"encoding/csv"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 )
 
 type CSVWriter struct {
 	file       *os.File
 	w          *csv.Writer
 	keys       []string
+	entity     string // the stream's only entity, set by the first record
 	initd      bool
 	omitEntity bool
+	row        []string // reused across records
 }
 
 // NewCSVWriter creates a CSV writer at the given path.
@@ -39,62 +44,88 @@ func NewCSVWriterSplit(path string) (*CSVWriter, error) {
 	return w, nil
 }
 
-// WriteRecord writes a CSV row and emits a header on the first record.
+// WriteRecord writes a CSV row and emits a header on the first record. A CSV
+// stream has a single header, so every record must belong to the first
+// record's entity.
 func (w *CSVWriter) WriteRecord(entity string, record *OrderedMap) error {
 	if record == nil {
 		return fmt.Errorf("csv: record is nil")
 	}
 
 	if !w.initd {
-		keys := make([]string, 0, len(record.keys))
-		for _, key := range record.Keys() {
-			if key == "_entity" {
-				continue
-			}
-			keys = append(keys, key)
+		if err := w.writeHeader(entity, record); err != nil {
+			return err
 		}
-		w.keys = keys
-		var header []string
-		if w.omitEntity {
-			header = w.keys
-		} else {
-			header = append([]string{"_entity"}, w.keys...)
-		}
-		if err := w.w.Write(header); err != nil {
-			return fmt.Errorf("csv: header: %w", err)
-		}
-		w.initd = true
+	} else if entity != w.entity {
+		return fmt.Errorf("csv: cannot write entity %q after %q: one CSV stream holds one entity; write one file per entity (--split-entities)", entity, w.entity)
 	}
 
-	var row []string
-	if w.omitEntity {
-		row = make([]string, 0, len(w.keys))
-	} else {
-		row = make([]string, 0, len(w.keys)+1)
-		row = append(row, entity)
+	w.row = w.row[:0]
+	if !w.omitEntity {
+		w.row = append(w.row, entity)
 	}
 	for _, key := range w.keys {
-		val, ok := record.Get(key)
-		if !ok || val == nil {
-			row = append(row, "")
-			continue
+		val, _ := record.Get(key)
+		cell, err := csvCell(val)
+		if err != nil {
+			return fmt.Errorf("csv: field %q: %w", key, err)
 		}
-		row = append(row, fmt.Sprint(val))
+		w.row = append(w.row, cell)
 	}
-	if err := w.w.Write(row); err != nil {
+	if err := w.w.Write(w.row); err != nil {
 		return fmt.Errorf("csv: write: %w", err)
 	}
 	return nil
 }
 
-// Close flushes buffered data and closes the file (if one was opened).
+func (w *CSVWriter) writeHeader(entity string, record *OrderedMap) error {
+	w.keys = make([]string, 0, len(record.keys))
+	for _, key := range record.keys {
+		if key != "_entity" {
+			w.keys = append(w.keys, key)
+		}
+	}
+
+	header := w.keys
+	if !w.omitEntity {
+		header = append([]string{"_entity"}, w.keys...)
+	}
+	if err := w.w.Write(header); err != nil {
+		return fmt.Errorf("csv: header: %w", err)
+	}
+	w.entity = entity
+	w.initd = true
+	return nil
+}
+
+// csvCell formats one value. Floats use plain decimal notation and nested
+// maps and lists are JSON, so cells parse the same way everywhere.
+func csvCell(val any) (string, error) {
+	switch v := val.(type) {
+	case nil:
+		return "", nil
+	case string:
+		return v, nil
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), nil
+	case map[string]any, []any:
+		b, err := json.Marshal(v)
+		return string(b), err
+	default:
+		return fmt.Sprint(v), nil
+	}
+}
+
+// Close flushes buffered data and closes the file (if one was opened). The
+// file is closed even when the flush fails.
 func (w *CSVWriter) Close() error {
 	w.w.Flush()
-	if err := w.w.Error(); err != nil {
-		return fmt.Errorf("csv: flush: %w", err)
+	var err error
+	if flushErr := w.w.Error(); flushErr != nil {
+		err = fmt.Errorf("csv: flush: %w", flushErr)
 	}
 	if w.file != nil {
-		return w.file.Close()
+		err = errors.Join(err, w.file.Close())
 	}
-	return nil
+	return err
 }

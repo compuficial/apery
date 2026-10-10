@@ -210,6 +210,35 @@ func TestTimeGenerator_Format(t *testing.T) {
 	}
 }
 
+// Optional keys with the wrong type must fail instead of silently defaulting.
+func TestTimeGenerator_WrongTypedOptionalKeys(t *testing.T) {
+	RunConfigTests(t, timeGen, []ConfigTestCase{
+		{Name: "tz not a string", Config: map[string]any{"tz": 5}, ExpectError: true},
+		{Name: "format not a string", Config: map[string]any{"format": 5}, ExpectError: true},
+	})
+}
+
+// start/end are wall-clock times in tz, not UTC.
+func TestTimeGenerator_RangeInTimezone(t *testing.T) {
+	gen, err := Get(timeGen, map[string]any{"start": "2024-01-01", "end": "2024-01-02", "tz": "America/New_York"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc, _ := time.LoadLocation("America/New_York")
+	lo := time.Date(2024, 1, 1, 0, 0, 0, 0, loc)
+	hi := time.Date(2024, 1, 2, 0, 0, 0, 0, loc)
+	for i := range testIterations {
+		val, _ := gen.Next(rng.New(rng.DeriveIndex(rng.SeedFromInt64(testSeed), int64(i))))
+		ts, err := time.Parse(time.RFC3339, val.(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ts.Before(lo) || ts.After(hi) {
+			t.Fatalf("%s outside [%s, %s]", ts, lo, hi)
+		}
+	}
+}
+
 func TestTimeGenerator_Timezone(t *testing.T) {
 	tests := []struct {
 		Name     string

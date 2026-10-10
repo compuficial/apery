@@ -66,8 +66,14 @@ entities:
 ```
 
 ```bash
-# Validate
+# Validate (builds every generator, reports all problems)
 apery validate -f examples/users.yaml
+
+# Preview: row estimates and columns per entity, no data
+apery generate -f examples/users.yaml --dry-run
+
+# Sample a few rows
+apery generate -f examples/users.yaml --limit 3
 
 # Generate to stdout (JSONL)
 apery generate -f examples/users.yaml
@@ -388,14 +394,14 @@ apery generate -f examples/ecommerce.yaml --verbose > /dev/null
 apery generate -f examples/ecommerce.yaml --debug > /dev/null
 # Additional output includes:
 #   level=DEBUG msg=field.init entity=User field=id gen=seq seed=...
-#   level=DEBUG msg=chunk.dispatch chunk=0 start=0 end=50000
+#   level=DEBUG msg=chunk.start entity=User chunk=0 start=0 end=100
 #   level=DEBUG msg=driven_by.layout entity=Order parent=User total_children=292
 ```
 
 ## Performance
 
 ```bash
-# Generate 1M rows with tuned parallelism
+# Generate 1M rows (defaults use every core with 10,000-row chunks)
 cat > /tmp/bench.yaml << 'EOF'
 seed: 1
 entities:
@@ -415,12 +421,12 @@ entities:
           values: [a, b, c, d, e]
 EOF
 
-time apery generate -f /tmp/bench.yaml --workers 16 --chunk-size 100000 > /dev/null
+time apery generate -f /tmp/bench.yaml > /dev/null
 
 # With verbose progress
 time apery generate -f /tmp/bench.yaml --workers 16 --verbose > /dev/null
 
-# With debug (see chunk dispatch details)
+# With debug (see per-chunk details)
 time apery generate -f /tmp/bench.yaml --workers 16 --debug > /dev/null
 ```
 
@@ -438,7 +444,7 @@ apery validate -f /tmp/bad.yaml; echo "exit: $?"
 echo '{"seed": 1, "entities": []}' > /tmp/empty.json
 apery validate -f /tmp/empty.json; echo "exit: $?"
 
-# Unknown generator
+# Unknown generator: caught by validate, and by generate before anything is written (exit 1)
 cat > /tmp/badgen.yaml << 'EOF'
 seed: 1
 entities:
@@ -448,8 +454,41 @@ entities:
       - name: x
         gen: nonexistent
 EOF
+apery validate -f /tmp/badgen.yaml; echo "exit: $?"
 apery generate -f /tmp/badgen.yaml; echo "exit: $?"
+
+# Misspelled config key: an error with a suggestion, never a silent default
+cat > /tmp/typo.yaml << 'EOF'
+seed: 1
+entities:
+  - name: X
+    count: 1
+    fields:
+      - name: age
+        gen: int
+        config: {mni: 18, max: 65}
+EOF
+apery validate -f /tmp/typo.yaml -o json
+# {
+#   "valid": false,
+#   "issues": [
+#     {
+#       "path": "entities[0].fields[0].config",
+#       "entity": "X",
+#       "field": "age",
+#       "code": "unknown_config_key",
+#       "message": "int: unknown config key \"mni\" (did you mean \"min\"?)",
+#       "hint": "valid keys: min, max"
+#     }
+#   ]
+# }
 
 # --split-entities without --output-dir
 apery generate -f examples/users.yaml --split-entities; echo "exit: $?"
+
+# Multi-entity CSV needs one file per entity
+apery generate -f examples/ecommerce.yaml -o csv; echo "exit: $?"
+apery generate -f examples/ecommerce.yaml -o csv --output-dir ./out --split-entities
 ```
+
+Exit codes: `0` success, `1` validation (plan, flags, unknown generator, bad config), `2` generation, `3` I/O, `130` interrupted (Ctrl+C stops the run promptly). With `--output-dir`, a failed or interrupted run leaves no partial files.

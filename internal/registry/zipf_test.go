@@ -34,7 +34,7 @@ func TestZipfGenerator_Config(t *testing.T) {
 		{Name: "invalid s type", Config: map[string]any{"s": "1.5"}, ExpectError: true},
 		{Name: "invalid v type", Config: map[string]any{"v": "1.0"}, ExpectError: true},
 		{Name: "invalid imax type string", Config: map[string]any{"imax": "100"}, ExpectError: true},
-		{Name: "invalid imax type float", Config: map[string]any{"imax": 100.0}, ExpectError: true},
+		{Name: "invalid imax type float", Config: map[string]any{"imax": 100.5}, ExpectError: true},
 	})
 }
 

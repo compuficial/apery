@@ -98,7 +98,7 @@ $ apery generate -f plan.yaml | head -3
 | **Fast** | Chunked parallel execution across all cores. See [Performance](#performance) for numbers. |
 | **Composable** | 22 generators that nest and combine. Objects, lists, templates, conditional dispatch, cross-row arithmetic. |
 | **Relational** | Foreign keys, 1:M parent-child, M:N junction tables. Zipf distributions for realistic skew. |
-| **Agent-first** | YAML/JSON plans, stdout piping, structured slog output, exit codes. No GUI, no server. |
+| **Agent-first** | YAML/JSON plans, stdout piping, structured slog output, exit codes. `validate -o json` reports every plan problem with a path, code, and hint. No GUI, no server. |
 | **Zero config** | Single binary. No database, no runtime dependencies. |
 
 ## Generators
@@ -225,7 +225,7 @@ $ head -1 out/Order.jsonl | jq .
 {
   "user_id": 1,
   "order_id": 1,
-  "product_id": 34,
+  "product_id": 24,
   "quantity": 7
 }
 ```
@@ -237,19 +237,24 @@ apery generate -f plan.yaml              # JSONL to stdout
 apery generate -f plan.yaml -o csv       # CSV to stdout
 apery generate -f plan.yaml --output-dir ./out
 apery generate -f plan.yaml --output-dir ./out --split-entities
-apery generate -f plan.yaml --dry-run    # validate only
+apery generate -f plan.yaml --dry-run    # validate + show row estimates and columns
+apery generate -f plan.yaml --limit 5    # at most 5 rows per entity
 apery generate -f plan.yaml --seed 123   # override seed
 apery generate -f plan.yaml --verbose    # entity progress to stderr
 apery generate -f plan.yaml --debug      # full debug output to stderr
 
-apery validate -f plan.yaml              # validate a plan file
-apery list generators                    # list all generators
-apery describe generator <name>          # show config schema + example
+apery validate -f plan.yaml              # validate a plan file (all problems at once)
+apery validate -f plan.yaml -o json      # machine-readable issues: path, code, message, hint
+apery list generators                    # list all generators (-o json|yaml for full metadata)
+apery describe generator <name>          # show config schema + example (-o json|yaml)
+apery describe plan-schema               # JSON Schema for plan files
 apery version                            # print version
 apery help <command>                     # help for any command
 ```
 
-**Exit codes:** `0` success, `1` validation error, `2` generation error, `3` I/O error.
+**Exit codes:** `0` success, `1` validation error (plan, flags, unknown generator, bad config), `2` generation error, `3` I/O error, `130` interrupted.
+
+Plans are strict: unknown keys (`confg:`, a misspelled `mni:`) are errors with a "did you mean" hint, never silently ignored. Multi-entity CSV needs `--split-entities`. With `--output-dir`, files appear only when the whole run succeeds.
 
 ## Performance
 
@@ -270,7 +275,7 @@ entities:
         config: { values: [a, b, c, d, e] }
 
 $ time apery generate -f bench.yaml --workers 16 > /dev/null
-real    0m1.6s
+real    0m0.10s
 ```
 
 Numbers depend heavily on plan shape (regex, `rel_ref`, composite generators are more expensive than scalar `seq`/`int`/`pick`) and whether output is piped to a file or a terminal. Run your own plan with `--workers $(nproc) > /dev/null` to get a representative number for your workload.
@@ -284,20 +289,22 @@ $ apery generate -f plan.yaml --seed 42 | md5sum
 fc8756b572010e94b46afc81ecbe6a02  -
 ```
 
-Hierarchical seed derivation ensures identical output regardless of worker count or chunk size. See the [spec](docs/spec.md) for the full seed derivation model.
+Hierarchical seed derivation ensures identical output regardless of worker count or chunk size. Records stream to the output as chunks finish, so memory is bounded by workers × chunk size rather than row count. See the [spec](docs/spec.md) for the full seed derivation model.
 
 ## Go Library
 
 ```go
-import "apery"
+import "github.com/compuficial/apery"
 
-p, _ := apery.LoadPlanFile("plan.yaml")
+p, err := apery.LoadPlanFile("plan.yaml")
+if err != nil { return err }
 
-w, _ := apery.NewJSONLWriter("output.jsonl")
-apery.Run(ctx, p, w,
-    apery.WithWorkers(16),
-    apery.WithChunkSize(100000),
-)
+w, err := apery.NewJSONLWriter("output.jsonl")
+if err != nil { return err }
+
+// Run validates every generator first (a *apery.ValidationError lists all
+// problems), then streams records to w and closes it.
+err = apery.Run(ctx, p, w, apery.WithWorkers(8))
 ```
 
 ## Architecture
@@ -316,9 +323,9 @@ flowchart LR
 
 | Stage | Package | Responsibility |
 |-------|---------|----------------|
-| **Plan** | [`internal/plan`](internal/plan) | Load + validate YAML/JSON into entities, fields, and generator configs. |
+| **Plan** | [`internal/plan`](internal/plan) | Strictly load + validate YAML/JSON into entities, fields, and generator configs. |
 | **Registry** | [`internal/registry`](internal/registry) | Generator factory. Built-ins auto-register at init time; each is self-describing via `GeneratorInfo`. |
-| **Runtime** | [`internal/runtime`](internal/runtime) | Chunked parallel executor. Row-by-row generation with cross-entity column store for relational lookups. Structured `slog` logging. |
+| **Runtime** | [`internal/runtime`](internal/runtime) | Builds every generator up front, then runs chunks in parallel and streams them to the writer in order. Cross-entity column store for relational lookups. Structured `slog` logging. |
 | **Writer** | [`internal/writer`](internal/writer) | Streaming output: single JSONL/CSV file, stdout, or per-entity split files. |
 
 **Determinism is the core invariant.** Seeds cascade deterministically via FNV-1a derivation:

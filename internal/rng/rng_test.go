@@ -2,6 +2,9 @@ package rng
 
 import (
 	"bytes"
+	"encoding/binary"
+	"math"
+	"math/rand/v2"
 	"testing"
 )
 
@@ -64,10 +67,72 @@ func TestRead(t *testing.T) {
 	}
 }
 
-func TestNewZipf(t *testing.T) {
-	r := New(SeedFromInt64(5))
-	z := r.NewZipf(1.1, 1, 10)
-	if z == nil {
-		t.Fatal("expected zipf generator")
+// A range spanning all of int64 must not overflow the span computation.
+func TestIntRangeFullSpan(t *testing.T) {
+	r := New(SeedFromInt64(6))
+	for range 100 {
+		r.IntRange(math.MinInt64, math.MaxInt64)
+	}
+}
+
+// Ranges wider than MaxFloat64 must still produce finite in-range values.
+func TestFloatRangeHugeSpan(t *testing.T) {
+	r := New(SeedFromInt64(7))
+	spans := [][2]float64{{-math.MaxFloat64, math.MaxFloat64}, {0, math.MaxFloat64}, {-1e308, 1e308}}
+	for _, s := range spans {
+		for range 100 {
+			v := r.FloatRange(s[0], s[1])
+			if math.IsInf(v, 0) || math.IsNaN(v) || v < s[0] || v > s[1] {
+				t.Fatalf("FloatRange(%g, %g) = %g", s[0], s[1], v)
+			}
+		}
+	}
+}
+
+// Reseed must reproduce exactly the stream New would give for that seed.
+func TestReseedMatchesNew(t *testing.T) {
+	r := New(SeedFromInt64(1))
+	r.Float64()
+	r.Reseed(SeedFromInt64(99))
+	fresh := New(SeedFromInt64(99))
+	if r.GetSeed() != fresh.GetSeed() {
+		t.Fatalf("seed = %d, want %d", r.GetSeed(), fresh.GetSeed())
+	}
+	for i := range 50 {
+		if a, b := r.IntRange(0, 1<<40), fresh.IntRange(0, 1<<40); a != b {
+			t.Fatalf("draw %d: reseeded %d != fresh %d", i, a, b)
+		}
+	}
+}
+
+// Read fills 8 bytes per 64-bit draw, little-endian.
+func TestReadUsesWholeWords(t *testing.T) {
+	buf := make([]byte, 12)
+	New(SeedFromInt64(8)).Read(buf)
+
+	src := rand.New(rand.NewPCG(uint64(SeedFromInt64(8)), 0))
+	want := make([]byte, 16)
+	binary.LittleEndian.PutUint64(want, src.Uint64())
+	binary.LittleEndian.PutUint64(want[8:], src.Uint64())
+	if !bytes.Equal(buf, want[:12]) {
+		t.Fatalf("Read = %x, want %x", buf, want[:12])
+	}
+}
+
+// The cached Zipf sampler must match the stdlib sampler draw for draw, both
+// when the Rng is reused (reseeded) and when a new Rng arrives.
+func TestZipfMatchesStdlib(t *testing.T) {
+	z := NewZipf(1.5, 1, 100)
+	r := New(0)
+	for i := range int64(200) {
+		seed := DeriveIndex(SeedFromInt64(9), i)
+		r.Reseed(seed)
+		want := rand.NewZipf(rand.New(rand.NewPCG(uint64(seed), 0)), 1.5, 1, 100).Uint64()
+		if got := z.Uint64(r); got != want {
+			t.Fatalf("draw %d: got %d, want %d", i, got, want)
+		}
+		if got := z.Uint64(New(seed)); got != want {
+			t.Fatalf("draw %d with new Rng: got %d, want %d", i, got, want)
+		}
 	}
 }

@@ -2,7 +2,7 @@ package writer
 
 import (
 	"bufio"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +12,7 @@ type JSONLWriter struct {
 	file       *os.File
 	buf        *bufio.Writer
 	omitEntity bool
+	line       []byte // encode buffer reused across records
 }
 
 // NewJSONLWriter creates a JSONL writer at the given path.
@@ -46,34 +47,26 @@ func NewJSONLWriterSplit(path string) (*JSONLWriter, error) {
 
 // WriteRecord writes a single JSONL record, prepending _entity unless omitEntity is set.
 func (w *JSONLWriter) WriteRecord(entity string, record *OrderedMap) error {
-	out := record.Clone()
-	if !w.omitEntity {
-		out.Prepend("_entity", entity)
+	if w.omitEntity {
+		entity = ""
 	}
 
-	data, err := json.Marshal(out)
+	line, err := appendObject(w.line[:0], record, entity)
 	if err != nil {
-		return fmt.Errorf("marshal json: %w", err)
+		return fmt.Errorf("jsonl: entity %q: %w", entity, err)
 	}
+	w.line = append(line, '\n')
 
-	if _, err := w.buf.Write(data); err != nil {
-		return err
-	}
-
-	if err := w.buf.WriteByte('\n'); err != nil {
-		return err
-	}
-
-	return nil
+	_, err = w.buf.Write(w.line)
+	return err
 }
 
-// Close flushes buffered data and closes the file (if one was opened).
+// Close flushes buffered data and closes the file (if one was opened). The
+// file is closed even when the flush fails.
 func (w *JSONLWriter) Close() error {
-	if err := w.buf.Flush(); err != nil {
-		return err
-	}
+	err := w.buf.Flush()
 	if w.file != nil {
-		return w.file.Close()
+		err = errors.Join(err, w.file.Close())
 	}
-	return nil
+	return err
 }

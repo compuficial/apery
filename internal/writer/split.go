@@ -1,8 +1,11 @@
 package writer
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 )
 
 // SplitWriter routes records to per-entity files. Each entity gets its own
@@ -28,6 +31,10 @@ func (sw *SplitWriter) writerFor(entity string) (Writer, error) {
 		return w, nil
 	}
 
+	// Plans validate entity names; this guards library callers too.
+	if entity == "" || entity == "." || entity == ".." || strings.ContainsAny(entity, `/\`) {
+		return nil, fmt.Errorf("split writer: entity name %q cannot be used as a file name", entity)
+	}
 	path := filepath.Join(sw.dir, entity+"."+sw.format)
 
 	var w Writer
@@ -56,12 +63,19 @@ func (sw *SplitWriter) WriteRecord(entity string, record *OrderedMap) error {
 	return w.WriteRecord(entity, record)
 }
 
+// Close closes every per-entity file and reports all failures.
 func (sw *SplitWriter) Close() error {
-	var firstErr error
-	for _, w := range sw.writers {
-		if err := w.Close(); err != nil && firstErr == nil {
-			firstErr = err
+	entities := make([]string, 0, len(sw.writers))
+	for entity := range sw.writers {
+		entities = append(entities, entity)
+	}
+	slices.Sort(entities)
+
+	var errs []error
+	for _, entity := range entities {
+		if err := sw.writers[entity].Close(); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	return firstErr
+	return errors.Join(errs...)
 }

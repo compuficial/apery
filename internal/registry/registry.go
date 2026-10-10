@@ -2,33 +2,35 @@
 //
 // Generators implement the Generator interface and register themselves via init()
 // functions. The registry uses a factory pattern where each generator name maps to
-// a factory function that creates instances from configuration maps.
+// a factory function that creates instances from configuration maps. Get checks
+// config keys against each generator's GeneratorInfo before calling its factory.
 //
-// Built-in generators include: seq (sequential), pick (random selection), bool
-// (weighted boolean), int, float, and uuid.
+// Run `apery list generators` for the built-in catalog.
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
 	"sort"
+	"strings"
+
+	"github.com/compuficial/apery/internal/rng"
 )
 
 // GeneratorInfo describes a generator for CLI help and agent discovery.
 type GeneratorInfo struct {
-	Name        string
-	Description string
-	ConfigKeys  []ConfigKey
-	Example     string
+	Name        string      `json:"name" yaml:"name"`
+	Description string      `json:"description" yaml:"description"`
+	ConfigKeys  []ConfigKey `json:"config_keys" yaml:"config_keys"`
+	Example     string      `json:"example" yaml:"example"`
 }
 
 // ConfigKey documents a single configuration parameter.
 type ConfigKey struct {
-	Name     string
-	Type     string
-	Required bool
-	Default  string
-	Desc     string
+	Name     string `json:"name" yaml:"name"`
+	Type     string `json:"type" yaml:"type"`
+	Required bool   `json:"required" yaml:"required"`
+	Default  string `json:"default,omitempty" yaml:"default,omitempty"`
+	Desc     string `json:"description" yaml:"description"`
 }
 
 // Generator creates values
@@ -66,13 +68,145 @@ func MustRegister(name string, factory Factory) {
 	}
 }
 
-// Get retrieves a generator by name
+// Get builds a generator by name after rejecting config keys its
+// GeneratorInfo doesn't declare. Keys starting with "_" are reserved for the
+// executor and always pass.
 func Get(name string, config map[string]any) (Generator, error) {
-	factory, ok := generators[name]
-	if !ok {
-		return nil, fmt.Errorf("registry: generator %q not found", name)
+	factory, err := FactoryFor(name)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkConfigKeys(name, config); err != nil {
+		return nil, err
 	}
 	return factory(config)
+}
+
+// UnknownGeneratorError reports a generator name the registry doesn't know.
+type UnknownGeneratorError struct {
+	Name       string
+	Suggestion string // closest registered name, or ""
+}
+
+func (e *UnknownGeneratorError) Error() string {
+	msg := fmt.Sprintf("registry: generator %q not found", e.Name)
+	if e.Suggestion != "" {
+		msg += fmt.Sprintf(" (did you mean %q?)", e.Suggestion)
+	}
+	return msg
+}
+
+// UnknownKey is one undeclared config key and its closest valid key.
+type UnknownKey struct {
+	Name       string
+	Suggestion string // "" when nothing is close
+}
+
+// UnknownKeyError reports config keys a generator doesn't declare.
+type UnknownKeyError struct {
+	Generator string
+	Keys      []UnknownKey
+	Valid     []string // every key the generator accepts
+}
+
+// Error lists each unknown key with its suggestion, e.g.
+// int: unknown config key "mn" (did you mean "min"?)
+func (e *UnknownKeyError) Error() string {
+	parts := make([]string, len(e.Keys))
+	for i, k := range e.Keys {
+		parts[i] = fmt.Sprintf("%q", k.Name)
+		if k.Suggestion != "" {
+			parts[i] += fmt.Sprintf(" (did you mean %q?)", k.Suggestion)
+		}
+	}
+	noun := "key"
+	if len(e.Keys) > 1 {
+		noun = "keys"
+	}
+	return fmt.Sprintf("%s: unknown config %s %s", e.Generator, noun, strings.Join(parts, ", "))
+}
+
+// Hint lists the keys the generator accepts.
+func (e *UnknownKeyError) Hint() string {
+	if len(e.Valid) == 0 {
+		return e.Generator + " takes no config"
+	}
+	return "valid keys: " + strings.Join(e.Valid, ", ")
+}
+
+// checkConfigKeys reports every undeclared key, in sorted order so the
+// error is stable, each with a spelling suggestion when one is close.
+func checkConfigKeys(name string, config map[string]any) error {
+	info, ok := generatorInfos[name]
+	if !ok {
+		return nil
+	}
+
+	allowed := make([]string, len(info.ConfigKeys))
+	for i, ck := range info.ConfigKeys {
+		allowed[i] = ck.Name
+	}
+
+	keys := make([]string, 0, len(config))
+	for key := range config {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var unknown []UnknownKey
+	for _, key := range keys {
+		if strings.HasPrefix(key, "_") || contains(allowed, key) {
+			continue
+		}
+		unknown = append(unknown, UnknownKey{Name: key, Suggestion: closestKey(key, allowed)})
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	return &UnknownKeyError{Generator: name, Keys: unknown, Valid: allowed}
+}
+
+func contains(list []string, s string) bool {
+	for _, item := range list {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+// closestKey returns the candidate within edit distance 2 of key, if any.
+// Example: closestKey("mni", ["min", "max"]) == "min".
+func closestKey(key string, candidates []string) string {
+	const maxDistance = 2
+	best, bestDist := "", maxDistance+1
+	for _, c := range candidates {
+		if d := editDistance(key, c); d < bestDist {
+			best, bestDist = c, d
+		}
+	}
+	return best
+}
+
+// editDistance is the Levenshtein distance between a and b.
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	cur := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(b)]
 }
 
 // MustRegisterInfo adds metadata for a previously registered generator and panics if the generator is unknown.
@@ -106,7 +240,12 @@ func GetInfo(name string) (GeneratorInfo, bool) {
 func FactoryFor(name string) (Factory, error) {
 	factory, ok := generators[name]
 	if !ok {
-		return nil, fmt.Errorf("registry: generator %q not found", name)
+		names := make([]string, 0, len(generatorInfos))
+		for n := range generatorInfos {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		return nil, &UnknownGeneratorError{Name: name, Suggestion: closestKey(name, names)}
 	}
 	return factory, nil
 }
@@ -145,8 +284,30 @@ type EntityStore interface {
 	StoreColumn(entity, field string, values []any)
 }
 
-// Resettable is implemented by generators with internal state that must be
-// cleared between parent batches in driven_by entities (e.g., unique trackers).
+// Resettable is implemented by generators with per-batch state (e.g. unique
+// rel_ref). In driven_by entities each parent's children form a batch and the
+// executor resets the generator between them; a standalone entity is one batch.
 type Resettable interface {
 	Reset()
+}
+
+// Seekable is implemented by generators whose value depends on the row's
+// position (e.g. seq). The executor seeks each chunk's instance to its first
+// row so output is independent of chunking.
+type Seekable interface {
+	SeekRow(row int64) error
+}
+
+// ColumnRef names a column of a previously generated entity.
+type ColumnRef struct {
+	Entity string
+	Field  string
+}
+
+// StoreConsumer is implemented by generators that read columns of earlier
+// entities (e.g. rel_ref). The executor keeps the columns named by StoreRefs
+// and binds the store to each chunk's instance before generating.
+type StoreConsumer interface {
+	StoreRefs() []ColumnRef
+	BindStore(store ReadOnlyEntityStore) error
 }
