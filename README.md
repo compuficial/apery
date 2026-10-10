@@ -117,6 +117,7 @@ Run `apery list generators` to see all available generators, or `apery describe 
 | `const` | Fixed value | `value: active` |
 | `regex` | String from pattern | `pattern: "[A-Z]{2}-\\d{6}"` |
 | `time` | Timestamp in range | `start: "2024-01-01", end: "2024-12-31"` |
+| `time_seq` | Increasing timestamps (event streams, logs) | `start: "2024-06-01", step: 90s, jitter: 30s` |
 | `uuid` | UUID v4 | — |
 | `ulid` | ULID | — |
 | `normal_int` | Gaussian integer | `mu: 50, sigma: 10` |

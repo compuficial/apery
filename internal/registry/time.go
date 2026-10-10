@@ -39,16 +39,7 @@ func (t *TimeGenerator) Next(r *rng.Rng) (any, error) {
 
 // validateTimeConfig validates and parses config for time generator.
 func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *time.Location, error) {
-	tzStr, err := optionalString(config, "tz", defaultTimezone)
-	if err != nil {
-		return time.Time{}, time.Time{}, "", nil, err
-	}
-	loc, err := time.LoadLocation(tzStr)
-	if err != nil {
-		return time.Time{}, time.Time{}, "", nil, fmt.Errorf("time: invalid timezone %q: %w", tzStr, err)
-	}
-
-	format, err := optionalString(config, "format", defaultTimeFormat)
+	format, loc, err := parseFormatAndZone(config, "time")
 	if err != nil {
 		return time.Time{}, time.Time{}, "", nil, err
 	}
@@ -58,12 +49,12 @@ func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *t
 	defaultStart, _ := time.Parse(time.RFC3339, defaultStartTime)
 	defaultEnd, _ := time.Parse(time.RFC3339, defaultEndTime)
 
-	start, err := parseTimeFromConfig(config, "start", defaultStart, format, loc)
+	start, err := parseTimeFromConfig(config, "time", "start", defaultStart, format, loc)
 	if err != nil {
 		return time.Time{}, time.Time{}, "", nil, err
 	}
 
-	end, err := parseTimeFromConfig(config, "end", defaultEnd, format, loc)
+	end, err := parseTimeFromConfig(config, "time", "end", defaultEnd, format, loc)
 	if err != nil {
 		return time.Time{}, time.Time{}, "", nil, err
 	}
@@ -79,22 +70,41 @@ func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *t
 	return start, end, format, loc, nil
 }
 
+// parseFormatAndZone reads the optional format and tz keys shared by the
+// time generators.
+func parseFormatAndZone(config map[string]any, gen string) (string, *time.Location, error) {
+	tzStr, err := optionalString(config, gen, "tz", defaultTimezone)
+	if err != nil {
+		return "", nil, err
+	}
+	loc, err := time.LoadLocation(tzStr)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s: invalid timezone %q: %w", gen, tzStr, err)
+	}
+
+	format, err := optionalString(config, gen, "format", defaultTimeFormat)
+	if err != nil {
+		return "", nil, err
+	}
+	return format, loc, nil
+}
+
 // optionalString reads an optional string key, rejecting other types.
-func optionalString(config map[string]any, key, defaultVal string) (string, error) {
+func optionalString(config map[string]any, gen, key, defaultVal string) (string, error) {
 	val, exists := config[key]
 	if !exists {
 		return defaultVal, nil
 	}
 	s, ok := val.(string)
 	if !ok {
-		return "", fmt.Errorf("time: '%s' must be a string, got %T", key, val)
+		return "", fmt.Errorf("%s: '%s' must be a string, got %T", gen, key, val)
 	}
 	return s, nil
 }
 
 // parseTimeFromConfig reads and parses a time value from config. Values
 // without an explicit offset are wall-clock times in loc.
-func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time, format string, loc *time.Location) (time.Time, error) {
+func parseTimeFromConfig(config map[string]any, gen, key string, defaultVal time.Time, format string, loc *time.Location) (time.Time, error) {
 	val, exists := config[key]
 	if !exists {
 		return defaultVal, nil
@@ -102,7 +112,7 @@ func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time
 
 	s, ok := val.(string)
 	if !ok {
-		return time.Time{}, fmt.Errorf("time: '%s' must be a string, got %T", key, val)
+		return time.Time{}, fmt.Errorf("%s: '%s' must be a string, got %T", gen, key, val)
 	}
 
 	parsed, err := time.ParseInLocation(format, s, loc)
@@ -111,7 +121,7 @@ func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time
 		if fallback, fbErr := time.ParseInLocation(time.DateOnly, s, loc); fbErr == nil {
 			return fallback, nil
 		}
-		return time.Time{}, fmt.Errorf("time: invalid '%s': %w", key, err)
+		return time.Time{}, fmt.Errorf("%s: invalid '%s': %w", gen, key, err)
 	}
 
 	return parsed, nil

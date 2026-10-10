@@ -77,7 +77,7 @@ go test ./internal/runtime -run TestStress -v
    - `Get()` rejects config keys missing from the generator's `GeneratorInfo.ConfigKeys` (typed `UnknownKeyError` with suggestions); keys starting with `_` are reserved for the executor (`_env`)
    - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
-   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `lognormal`, `exponential`, `poisson`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `expr`, `date_offset`, `rel_ref`
+   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `time_seq`, `regex`, `normal_int`, `normal_float`, `lognormal`, `exponential`, `poisson`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `expr`, `date_offset`, `rel_ref`
    - Interfaces: `Generator`, `RowAwareGenerator`, `DependencyDeclarer`, `ReadOnlyEntityStore`, `EntityStore`, `Resettable`, `Seekable`, `StoreConsumer`
    - `Env` (passed as `_env`): per-run base dir and cache so each `file`/`url` value source loads once
 
@@ -175,7 +175,7 @@ Key design rules:
 2. Implement `Generator` interface
 3. Register in `init()` function with factory
 4. Factory should validate config and return generator instance; register `GeneratorInfo` whose `ConfigKeys` list every key the factory reads (`Get` rejects the rest, and `TestGeneratorExamplesBuild` checks each `Example`)
-   - Per-row state → implement `Seekable` or `Resettable`; reads other entities → implement `StoreConsumer`
+   - Per-row state → implement `Seekable` (e.g. `seq`, `time_seq`) or `Resettable`; reads other entities → implement `StoreConsumer`
 5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, row-aware, relational, or dependent)
 6. Regenerate golden files: `go test ./internal/runtime -run TestGolden -update -v`
 7. Review the golden file diff and commit

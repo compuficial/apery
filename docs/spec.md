@@ -220,6 +220,7 @@ Any field can set `null_rate`, the fraction of rows (0 to 1) whose value is null
 | `lognormal`    | —                  | `mu` (=0.0), `sigma` (=1.0), in log space; `clamp_min`, `clamp_max` | `float64`| Positive with a long right tail (prices, durations); median e^mu |
 | `exponential`  | —                  | `mean` (=1.0, > 0), `clamp_max`         | `float64`| Gaps between independent events (rate = 1/mean) |
 | `poisson`      | —                  | `lambda` (=1.0, > 0, <= 1e15)           | `int64`  | Count of events per period; mean and variance are `lambda` |
+| `time_seq`     | `start`, `step` (Go duration: `"90s"`, `"24h"`) | `jitter` (duration < `step`), `format` (=RFC3339), `tz` | `string` | Increasing timestamps: row i is `start + i*step` plus up to `jitter`, so each is later than the last. Seekable (like `seq`), so chunking doesn't change it; under `driven_by` it is one timeline across all children. Rows times step must stay within about 292 years |
 | `pick`         | one of `values` \| `file` \| `url` | `weights` (inline values only), `allowlist` (required with `url`) | any | Random selection from inline list, file, or URL |
 | `uuid`         | —                  | —                                       | `string` | UUID v4 |
 | `ulid`         | —                  | —                                       | `string` | ULID (sortable) |

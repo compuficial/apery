@@ -121,6 +121,39 @@ apery generate -f /tmp/nulls.yaml -o csv
 
 JSONL writes `null`, CSV an empty cell. `expr` and `date_offset` return null when an input is null, `template` renders it as empty text, and `rel_ref` never picks a null.
 
+### Realistic shapes and event streams
+
+Uniform values rarely look real. Use `lognormal` for prices and durations, `exponential` for gaps between events, `poisson` for counts, and `time_seq` for timestamps that move forward row by row.
+
+```bash
+cat > /tmp/events.yaml <<'EOF'
+seed: 11
+entities:
+  - name: Event
+    count: 5
+    fields:
+      - name: at
+        gen: time_seq
+        config:
+          start: "2024-06-01T09:00:00Z"
+          step: 90s
+          jitter: 30s
+      - name: basket_eur
+        gen: lognormal
+        config: {mu: 3.0, sigma: 0.5}   # median about e^3 = 20
+      - name: think_seconds
+        gen: exponential
+        config: {mean: 40, clamp_max: 600}
+      - name: items
+        gen: poisson
+        config: {lambda: 2.5}
+EOF
+
+apery generate -f /tmp/events.yaml | jq -c '{at, basket_eur, think_seconds, items}'
+```
+
+`time_seq` steps are Go durations (`90s`, `15m`, `24h`); `jitter` must be smaller than `step`, which keeps every timestamp later than the one before.
+
 ### 2. Composite — Users with Addresses
 
 Create `examples/composite.yaml`:

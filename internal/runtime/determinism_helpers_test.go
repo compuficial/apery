@@ -54,6 +54,9 @@ var scalarPlan = plan.Plan{
 			{Name: "wait", Gen: "exponential", Config: map[string]any{"mean": 300.0, "clamp_max": 3600.0}},
 			{Name: "visits", Gen: "poisson", Config: map[string]any{"lambda": 3.5}},
 			{Name: "views", Gen: "poisson", Config: map[string]any{"lambda": 250.0}},
+			{Name: "logged_at", Gen: "time_seq", Config: map[string]any{
+				"start": "2024-06-01T00:00:00Z", "step": "90s", "jitter": "30s",
+			}},
 		}},
 	},
 }
@@ -142,6 +145,9 @@ var relationalPlan = plan.Plan{
 				"entity": "Product", "field": "id",
 			}},
 			{Name: "amount", Gen: "int", Config: map[string]any{"min": 1, "max": 10}},
+			{Name: "placed_at", Gen: "time_seq", Config: map[string]any{
+				"start": "2024-01-01", "step": "1h", "jitter": "59m",
+			}},
 		}},
 		{Name: "Review", Count: 200, Fields: []plan.FieldSpec{
 			{Name: "customer_id", Gen: "rel_ref", Config: map[string]any{
