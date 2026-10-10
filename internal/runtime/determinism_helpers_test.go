@@ -50,6 +50,10 @@ var scalarPlan = plan.Plan{
 			{Name: "nickname", Gen: "pick", Config: map[string]any{
 				"values": []any{"Ace", "Bee", "Cy"},
 			}, NullRate: 0.25},
+			{Name: "price", Gen: "lognormal", Config: map[string]any{"mu": 3.0, "sigma": 0.5}},
+			{Name: "wait", Gen: "exponential", Config: map[string]any{"mean": 300.0, "clamp_max": 3600.0}},
+			{Name: "visits", Gen: "poisson", Config: map[string]any{"lambda": 3.5}},
+			{Name: "views", Gen: "poisson", Config: map[string]any{"lambda": 250.0}},
 		}},
 	},
 }

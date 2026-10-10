@@ -51,6 +51,7 @@ entities:
 
 - Entities are processed **in declared order** — declare upstream entities before any that reference them via `rel_ref`.
 - Every field has `name`, `gen`, and an optional `config: {...}` block whose shape depends on the generator (use `apery describe generator <name>`).
+- Pick the distribution that matches the quantity: `lognormal` for prices, incomes, and durations (positive, long right tail; `mu`/`sigma` are in log space, so the median is e^mu), `exponential` for gaps between events (`mean`), `poisson` for counts per period (`lambda`), `normal_float`/`normal_int` for symmetric measurements, `zipf` for popularity skew. Uniform `int`/`float` rarely looks real.
 - For missing data, add `null_rate: 0.2` to a field (any generator). Nulls render as `null` in JSONL and an empty cell in CSV; `expr`/`date_offset` over a null give null, `template` renders it as empty text, and `rel_ref` never picks a null. Validation rejects `null_rate` on a `driven_by` parent key and inside composite children.
 - Set `seed` explicitly at the top level (it defaults to 0 when omitted). The user can override it at run time with `--seed`.
 - Plans are strict: every key must be one the schema or the generator declares. A typo fails validation with a "did you mean" suggestion.

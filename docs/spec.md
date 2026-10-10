@@ -217,6 +217,9 @@ Any field can set `null_rate`, the fraction of rows (0 to 1) whose value is null
 | `normal_int`   | —                  | `mu` (=0.0), `sigma` (=1.0), `clamp_min`, `clamp_max` | `int64`  | Gaussian integer with optional clamp |
 | `normal_float` | —                  | `mu` (=0.0), `sigma` (=1.0), `clamp_min`, `clamp_max` | `float64`| Gaussian float with optional clamp |
 | `zipf`         | —                  | `s` (=1.1), `v` (=1.0), `imax` (=100)   | `uint64` | Zipf-distributed integer |
+| `lognormal`    | —                  | `mu` (=0.0), `sigma` (=1.0), in log space; `clamp_min`, `clamp_max` | `float64`| Positive with a long right tail (prices, durations); median e^mu |
+| `exponential`  | —                  | `mean` (=1.0, > 0), `clamp_max`         | `float64`| Gaps between independent events (rate = 1/mean) |
+| `poisson`      | —                  | `lambda` (=1.0, > 0, <= 1e15)           | `int64`  | Count of events per period; mean and variance are `lambda` |
 | `pick`         | one of `values` \| `file` \| `url` | `weights` (inline values only), `allowlist` (required with `url`) | any | Random selection from inline list, file, or URL |
 | `uuid`         | —                  | —                                       | `string` | UUID v4 |
 | `ulid`         | —                  | —                                       | `string` | ULID (sortable) |
@@ -554,7 +557,7 @@ Format is `jsonl` or `csv`. Files are created lazily on first write. Entity name
 
 This holds across:
 - Worker count, chunk size, and `GOMAXPROCS`.
-- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width). Float math rounds every product (`a + float64(b*c)`), so CPUs that fuse multiply-add (arm64, amd64 with `GOAMD64=v3`) give the same bits as amd64. `NormFloat64` and the Zipf sampler (`zipf`, and `rel_ref` with `distribution: zipf`) use portable `Exp`, `Log`, and `Cos` because the stdlib versions differ per architecture.
+- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width). Float math rounds every product (`a + float64(b*c)`), so CPUs that fuse multiply-add (arm64, amd64 with `GOAMD64=v3`) give the same bits as amd64. `NormFloat64`, the `lognormal`/`exponential`/`poisson` samplers, and the Zipf sampler (`zipf`, and `rel_ref` with `distribution: zipf`) use portable `Exp`, `Log`, `Cos`, and log-gamma because the stdlib versions differ per architecture.
 - Field ordering within composite generators (sub-seeds derive from names, not positions).
 - `driven_by` child counts (each parent's child count is derived from the parent index, not execution order).
 - Hosts with different time zone databases (zone rules are embedded in the binary).
