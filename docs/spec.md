@@ -391,7 +391,7 @@ Implemented in [`internal/rng/rng.go`](../internal/rng/rng.go).
 - `GetSeed()` returns the construction seed; composite generators use it to derive per-sub-field seeds deterministically.
 - `Reseed(seed)` restarts an `Rng` in place with the same stream as `New(seed)`. The executor keeps one `Rng` per chunk and reseeds it per field per row, so the hot loop doesn't allocate.
 - `Rng` implements `io.Reader` (8 bytes per 64-bit draw, little-endian), so it can feed libraries like `ulid.New()` that expect an entropy source.
-- `NewZipf(s, v, imax)` returns a sampler that rebuilds the stdlib `rand.Zipf` only when a different `Rng` is passed in.
+- `NewZipf(s, v, imax)` returns math/rand/v2's rejection-inversion Zipf sampler, ported onto portable math. It matches the stdlib draw for draw on amd64 and holds no per-draw state.
 
 ### 7.3 Chunked parallel execution
 
@@ -536,7 +536,7 @@ Format is `jsonl` or `csv`. Files are created lazily on first write. Entity name
 
 This holds across:
 - Worker count, chunk size, and `GOMAXPROCS`.
-- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width). Float math rounds every product (`a + float64(b*c)`), so CPUs that fuse multiply-add (arm64, amd64 with `GOAMD64=v3`) give the same bits as amd64. `NormFloat64` uses portable `Log` and `Cos` because the stdlib versions differ per architecture.
+- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width). Float math rounds every product (`a + float64(b*c)`), so CPUs that fuse multiply-add (arm64, amd64 with `GOAMD64=v3`) give the same bits as amd64. `NormFloat64` and the Zipf sampler (`zipf`, and `rel_ref` with `distribution: zipf`) use portable `Exp`, `Log`, and `Cos` because the stdlib versions differ per architecture.
 - Field ordering within composite generators (sub-seeds derive from names, not positions).
 - `driven_by` child counts (each parent's child count is derived from the parent index, not execution order).
 - Hosts with different time zone databases (zone rules are embedded in the binary).

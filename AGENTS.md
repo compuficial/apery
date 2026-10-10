@@ -210,6 +210,7 @@ The registry is global and thread-safe via init-time registration.
 - `internal/writer/csv.go`: CSV output writer (file, io.Writer, split mode)
 - `internal/writer/split.go`: Per-entity file routing writer
 - `internal/rng/rng.go`: Deterministic RNG with seed derivation
+- `internal/rng/portable_math.go`: Exp/Log/Cos that round identically on every CPU (used by `NormFloat64` and `Zipf`); `TestDigestsArePortable` pins their bits
 - `run.go`: Public API re-exports for library usage
 
 ## Design Documents
