@@ -204,6 +204,8 @@ The registry is global and thread-safe via init-time registration.
 - `internal/runtime/executor.go`: Execution orchestrator with slog-based structured logging
 - `internal/runtime/compile.go`: `Validate` and the compile step (build every generator once)
 - `internal/runtime/pipeline.go`: Ordered streaming of chunks to the writer
+- `internal/runtime/select.go`: `--entities` / `WithEntities`: which entities a run generates and writes
+- `internal/suggest/suggest.go`: "did you mean" matching shared by the registry and runtime
 - `internal/runtime/driven_by.go`: Driven-by execution path and layout computation
 - `internal/runtime/entity_store.go`: Cross-entity column store
 - `internal/writer/jsonl.go`: JSONL output writer (file, io.Writer, split mode)

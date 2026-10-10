@@ -36,7 +36,8 @@ type Executor struct {
 	logger    *slog.Logger
 	chunkSize int64
 	workers   int
-	rowLimit  int64 // 0 = no limit
+	rowLimit  int64    // 0 = no limit
+	entities  []string // entities to write; nil = all
 }
 
 // fieldRuntime is a compiled field with its entity-scoped seed.
@@ -86,6 +87,15 @@ func WithRowLimit(n int64) Option {
 	}
 }
 
+// WithEntities writes only the named entities. Entities they reference are
+// still generated, but not written, so references stay valid and every
+// written entity matches a full run.
+func WithEntities(names ...string) Option {
+	return func(e *Executor) {
+		e.entities = names
+	}
+}
+
 // New constructs an Executor with the provided writer and options.
 func New(w writer.Writer, opts ...Option) *Executor {
 	executor := &Executor{
@@ -114,6 +124,10 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 	if err != nil {
 		return err
 	}
+	sel, err := selectEntities(entities, e.entities)
+	if err != nil {
+		return err
+	}
 
 	store := newMapEntityStore()
 	required := requiredColumns(entities)
@@ -127,21 +141,27 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if !sel.generate[ent.spec.Name] {
+			continue
+		}
+		isWritten := sel.write[ent.spec.Name]
 
 		entityStart := time.Now()
 		if db := ent.spec.DrivenBy; db != nil {
-			e.logger.Info("entity.start", "entity", ent.spec.Name, "type", "driven_by", "parent", db.Entity)
+			e.logger.Info("entity.start", "entity", ent.spec.Name, "type", "driven_by", "parent", db.Entity, "written", isWritten)
 		} else {
-			e.logger.Info("entity.start", "entity", ent.spec.Name, "rows", ent.spec.Count)
+			e.logger.Info("entity.start", "entity", ent.spec.Name, "rows", ent.spec.Count, "written", isWritten)
 		}
 
 		// Write records as chunks complete, keeping only the columns later
-		// entities reference.
+		// entities reference. A dependency is generated but not written.
 		cols := newColumnCollector(required[ent.spec.Name])
 		emit := func(records []*writer.OrderedMap) error {
 			for _, record := range records {
-				if err := e.writer.WriteRecord(ent.spec.Name, record); err != nil {
-					return fmt.Errorf("%w: %w", ErrWrite, err)
+				if isWritten {
+					if err := e.writer.WriteRecord(ent.spec.Name, record); err != nil {
+						return fmt.Errorf("%w: %w", ErrWrite, err)
+					}
 				}
 				cols.add(record)
 			}

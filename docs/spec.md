@@ -582,6 +582,7 @@ Defined in [`cmd/apery/generate.go`](../cmd/apery/generate.go).
 | `--split-entities`   | `false` | One file per entity (requires `--output-dir`) |
 | `--dry-run`          | `false` | Validate the plan (including generators) and print per-entity row estimates and columns; produce no data |
 | `--limit`            | —       | Generate at most N rows per entity, `driven_by` children included. References sample from the capped rows, so values can differ from a full run |
+| `--entities`         | all     | Write only these entities (comma-separated). Their `driven_by` parents and `rel_ref` targets are still generated, transitively, but not written, so every written entity is byte-identical to a full run. Unknown names fail validation (`unknown_entity`, with a "did you mean"). A single selected entity can stream as CSV |
 | `--seed`             | —       | Override the plan's seed |
 | `--workers`          | auto    | Parallel worker count (auto = `min(NumCPU, 64)`) |
 | `--chunk-size`       | `10000` | Rows per chunk |
@@ -599,6 +600,8 @@ ENTITY  ROWS            COLUMNS
 User    100             id, email
 Order   100-500 (~300)  user_id, order_id, total
 ```
+
+With `--entities Order`, `User` is listed as `User (dependency)` with a note that it is generated but not written.
 
 ### 10.2 `apery validate`
 
@@ -691,6 +694,7 @@ func WithLogger(l *slog.Logger) Option
 func WithWorkers(n int)         Option
 func WithChunkSize(n int64)     Option
 func WithRowLimit(n int64)      Option
+func WithEntities(names ...string) Option // write only these; dependencies are generated, not written
 
 // Run validates p, then streams records to w. Run owns w and closes it,
 // on success or failure.

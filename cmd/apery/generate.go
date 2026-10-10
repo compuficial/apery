@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -50,6 +51,9 @@ interrupted run leaves the directory untouched.`,
   # Quick sample: at most 5 rows per entity
   apery generate -f plan.yaml --limit 5
 
+  # Only the Order table (entities it references are generated, not written)
+  apery generate -f plan.yaml --entities Order -o csv
+
   # Override seed and worker count
   apery generate -f plan.yaml --seed 123 --workers 8`,
 		Args: cobra.NoArgs,
@@ -66,6 +70,7 @@ interrupted run leaves the directory untouched.`,
 	f.Int("workers", 0, "Number of parallel workers, auto-detected if not set")
 	f.Int64("chunk-size", 0, "Rows per chunk, defaults to 10000 if not set")
 	f.Int64("limit", 0, "Generate at most N rows per entity (references sample from the capped rows)")
+	f.StringSlice("entities", nil, "Write only these entities (comma-separated); entities they reference are generated but not written")
 	f.Bool("verbose", false, "Show entity progress on stderr")
 	f.Bool("debug", false, "Show detailed debug output on stderr")
 	cmd.MarkFlagRequired("file")
@@ -82,6 +87,7 @@ type generateOptions struct {
 	workers   int
 	chunkSize int64
 	limit     int64
+	entities  []string    // nil = all
 	logLevel  *slog.Level // nil = no logging
 }
 
@@ -96,6 +102,8 @@ func parseGenerateFlags(cmd *cobra.Command) (generateOptions, error) {
 	o.workers, _ = f.GetInt("workers")
 	o.chunkSize, _ = f.GetInt64("chunk-size")
 	o.limit, _ = f.GetInt64("limit")
+	names, _ := f.GetStringSlice("entities")
+	o.entities = uniqueNames(names)
 
 	verbose, _ := f.GetBool("verbose")
 	debug, _ := f.GetBool("debug")
@@ -135,16 +143,21 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("seed") {
 		p.Seed, _ = cmd.Flags().GetInt64("seed")
 	}
-	if o.format == "csv" && !o.split && len(p.Entities) > 1 {
+	written := len(p.Entities)
+	if len(o.entities) > 0 {
+		written = len(o.entities)
+	}
+	if o.format == "csv" && !o.split && written > 1 {
 		return withCode(exitValidation, fmt.Errorf(
-			"CSV output holds one entity per stream and this plan has %d; use --output-dir with --split-entities, or -o jsonl", len(p.Entities)))
+			"CSV output holds one entity per stream and this run writes %d; use --output-dir with --split-entities, pick one with --entities, or use -o jsonl", written))
 	}
 
 	if o.dryRun {
-		if err := runtime.Validate(p); err != nil {
+		sel, err := runtime.Select(p, o.entities)
+		if err != nil {
 			return err
 		}
-		printSummary(cmd.OutOrStdout(), p, o.limit)
+		printSummary(cmd.OutOrStdout(), p, o.limit, sel)
 		return nil
 	}
 
@@ -182,6 +195,9 @@ func executorOptions(o generateOptions, logOut io.Writer) []runtime.Option {
 	if o.limit > 0 {
 		opts = append(opts, runtime.WithRowLimit(o.limit))
 	}
+	if len(o.entities) > 0 {
+		opts = append(opts, runtime.WithEntities(o.entities...))
+	}
 	if o.logLevel != nil {
 		logger := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: *o.logLevel}))
 		opts = append(opts, runtime.WithLogger(logger))
@@ -189,15 +205,38 @@ func executorOptions(o generateOptions, logOut io.Writer) []runtime.Option {
 	return opts
 }
 
+// uniqueNames trims names and drops empty and repeated ones, keeping order.
+func uniqueNames(names []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // printSummary renders the dry-run preview: rows (exact, or min-max with
-// the expected count for driven_by) and columns per entity.
-func printSummary(w io.Writer, p *plan.Plan, limit int64) {
+// the expected count for driven_by) and columns per entity. Entities outside
+// the selection are left out, and dependencies are marked.
+func printSummary(w io.Writer, p *plan.Plan, limit int64, sel runtime.Selection) {
 	fmt.Fprintln(w, "Plan is valid.")
 	fmt.Fprintln(w)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ENTITY\tROWS\tCOLUMNS")
 	for _, s := range plan.Summarize(p) {
+		name := s.Name
+		switch {
+		case slices.Contains(sel.Dependencies, s.Name):
+			name += " (dependency)"
+		case !slices.Contains(sel.Written, s.Name):
+			continue
+		}
+
 		rows := s.Rows
 		if limit > 0 {
 			rows.Min, rows.Max = min(rows.Min, limit), min(rows.Max, limit)
@@ -207,9 +246,14 @@ func printSummary(w io.Writer, p *plan.Plan, limit int64) {
 		if rows.Max != rows.Min {
 			count = fmt.Sprintf("%d-%d (~%.0f)", rows.Min, rows.Max, rows.Expected)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", s.Name, count, strings.Join(s.Columns, ", "))
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", name, count, strings.Join(s.Columns, ", "))
 	}
 	tw.Flush()
+
+	if len(sel.Dependencies) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "(dependency): generated because written entities reference it, but not written.")
+	}
 }
 
 // output is where generated records go. Files are written to a staging

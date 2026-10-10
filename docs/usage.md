@@ -312,6 +312,11 @@ head -3 ./out/Review.jsonl
 # Check order count per user (driven_by 1-5)
 cat ./out/Order.jsonl | jq -r '.user_id' | sort -n | uniq -c | sort -rn | head -10
 
+# Only the orders, as CSV: User and Product are generated so the
+# references stay valid, but not written. Rows match the full run.
+apery generate -f examples/ecommerce.yaml --entities Order --dry-run
+apery generate -f examples/ecommerce.yaml --entities Order -o csv | head -3
+
 # Check zipf distribution on reviews (some users get way more)
 cat ./out/Review.jsonl | jq -r '.user_id' | sort -n | uniq -c | sort -rn | head -10
 

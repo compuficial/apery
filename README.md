@@ -242,6 +242,7 @@ apery generate -f plan.yaml --output-dir ./out
 apery generate -f plan.yaml --output-dir ./out --split-entities
 apery generate -f plan.yaml --dry-run    # validate + show row estimates and columns
 apery generate -f plan.yaml --limit 5    # at most 5 rows per entity
+apery generate -f plan.yaml --entities Order -o csv   # one entity; its parents are generated, not written
 apery generate -f plan.yaml --seed 123   # override seed
 apery generate -f plan.yaml --verbose    # entity progress to stderr
 apery generate -f plan.yaml --debug      # full debug output to stderr

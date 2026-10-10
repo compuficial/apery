@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+
+	"github.com/compuficial/apery/internal/suggest"
 )
 
 // nesting says which generators a composite may contain.
@@ -66,7 +68,7 @@ func checkSpecKeys(spec map[string]any, where string) error {
 			continue
 		}
 		msg := fmt.Sprintf("%s: unknown key %q", where, key)
-		if guess := closestKey(key, []string{"gen", "config"}); guess != "" {
+		if guess := suggest.Closest(key, []string{"gen", "config"}); guess != "" {
 			msg += fmt.Sprintf(" (did you mean %q?)", guess)
 		}
 		return fmt.Errorf("%s; a generator spec takes only gen and config", msg)

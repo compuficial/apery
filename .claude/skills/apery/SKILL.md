@@ -123,8 +123,11 @@ Field order matters: `expr`/`date_offset` can only reference fields declared **b
 # Generate JSONL to stdout (pipe-friendly)
 apery generate -f plan.yaml
 
-# CSV (one entity per stream: multi-entity plans need --output-dir ./out --split-entities)
+# CSV (one entity per stream: multi-entity plans need --output-dir ./out --split-entities, or --entities)
 apery generate -f plan.yaml -o csv
+
+# One table only; entities it references are generated but not written, rows match a full run
+apery generate -f plan.yaml --entities Order -o csv
 
 # Write to directory (single output.jsonl)
 apery generate -f plan.yaml --output-dir ./out
