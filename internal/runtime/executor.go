@@ -36,13 +36,15 @@ type Executor struct {
 	logger    *slog.Logger
 	chunkSize int64
 	workers   int
-	rowLimit  int64 // 0 = no limit
+	rowLimit  int64    // 0 = no limit
+	entities  []string // entities to write; nil = all
 }
 
 // fieldRuntime is a compiled field with its entity-scoped seed.
 type fieldRuntime struct {
 	compiledField
-	seed rng.Seed
+	seed     rng.Seed
+	nullSeed rng.Seed // separate stream, so null_rate never shifts values
 }
 
 type Option func(*Executor)
@@ -85,6 +87,15 @@ func WithRowLimit(n int64) Option {
 	}
 }
 
+// WithEntities writes only the named entities. Entities they reference are
+// still generated, but not written and only for the columns that are read,
+// so references stay valid and every written entity matches a full run.
+func WithEntities(names ...string) Option {
+	return func(e *Executor) {
+		e.entities = names
+	}
+}
+
 // New constructs an Executor with the provided writer and options.
 func New(w writer.Writer, opts ...Option) *Executor {
 	executor := &Executor{
@@ -113,6 +124,11 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 	if err != nil {
 		return err
 	}
+	written, err := selectEntities(entities, e.entities)
+	if err != nil {
+		return err
+	}
+	entities = entitiesToRun(entities, written)
 
 	store := newMapEntityStore()
 	required := requiredColumns(entities)
@@ -126,21 +142,24 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		isWritten := written[ent.spec.Name]
 
 		entityStart := time.Now()
 		if db := ent.spec.DrivenBy; db != nil {
-			e.logger.Info("entity.start", "entity", ent.spec.Name, "type", "driven_by", "parent", db.Entity)
+			e.logger.Info("entity.start", "entity", ent.spec.Name, "type", "driven_by", "parent", db.Entity, "written", isWritten)
 		} else {
-			e.logger.Info("entity.start", "entity", ent.spec.Name, "rows", ent.spec.Count)
+			e.logger.Info("entity.start", "entity", ent.spec.Name, "rows", ent.spec.Count, "written", isWritten)
 		}
 
 		// Write records as chunks complete, keeping only the columns later
-		// entities reference.
+		// entities reference. A dependency is generated but not written.
 		cols := newColumnCollector(required[ent.spec.Name])
 		emit := func(records []*writer.OrderedMap) error {
 			for _, record := range records {
-				if err := e.writer.WriteRecord(ent.spec.Name, record); err != nil {
-					return fmt.Errorf("%w: %w", ErrWrite, err)
+				if isWritten {
+					if err := e.writer.WriteRecord(ent.spec.Name, record); err != nil {
+						return fmt.Errorf("%w: %w", ErrWrite, err)
+					}
 				}
 				cols.add(record)
 			}
@@ -167,7 +186,8 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, ent *compiledEntit
 	entitySeed := rng.Derive(rng.SeedFromInt64(seed), fmt.Sprintf("%s[%d]", ent.spec.Name, ent.index))
 	fields := make([]fieldRuntime, len(ent.fields))
 	for i, f := range ent.fields {
-		fields[i] = fieldRuntime{compiledField: f, seed: rng.Derive(entitySeed, f.name)}
+		seed := rng.Derive(entitySeed, f.name)
+		fields[i] = fieldRuntime{compiledField: f, seed: seed, nullSeed: rng.Derive(seed, "null")}
 		e.logger.Debug("field.init", "entity", ent.spec.Name, "field", f.name, "gen", f.gen, "seed", fields[i].seed)
 	}
 
@@ -226,6 +246,8 @@ type chunkField struct {
 	name     string
 	gen      registry.Generator
 	seed     rng.Seed
+	nullSeed rng.Seed
+	nullRate float64
 	rowAware registry.RowAwareGenerator // non-nil if gen reads the row
 	seekable registry.Seekable          // non-nil if gen tracks row position
 }
@@ -251,7 +273,7 @@ func instantiateFields(fields []fieldRuntime, store registry.ReadOnlyEntityStore
 			}
 		}
 
-		cf := chunkField{name: field.name, gen: gen, seed: field.seed}
+		cf := chunkField{name: field.name, gen: gen, seed: field.seed, nullSeed: field.nullSeed, nullRate: field.nullRate}
 		cf.rowAware, _ = gen.(registry.RowAwareGenerator)
 		cf.seekable, _ = gen.(registry.Seekable)
 		cfs = append(cfs, cf)
@@ -274,6 +296,8 @@ func seekFields(fields []chunkField, row int64) error {
 
 // generateRow sets every field's value for one row. r is reseeded per field
 // from the row seed, so values don't depend on chunking or field order.
+// A nullable field still generates its value, so stateful generators stay in
+// step and the rows that aren't null match the plan without null_rate.
 func generateRow(fields []chunkField, row int64, record *writer.OrderedMap, r *rng.Rng) error {
 	for i := range fields {
 		f := &fields[i]
@@ -288,6 +312,13 @@ func generateRow(fields []chunkField, row int64, record *writer.OrderedMap, r *r
 		}
 		if err != nil {
 			return fmt.Errorf("row %d, field '%s': %w", row, f.name, err)
+		}
+
+		if f.nullRate > 0 {
+			r.Reseed(rng.DeriveIndex(f.nullSeed, row))
+			if r.Float64() < f.nullRate {
+				val = nil
+			}
 		}
 		record.Set(f.name, val)
 	}

@@ -35,13 +35,13 @@ curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/install.sh |
 
 **Manual download** — grab a tarball/zip from [releases](https://github.com/compuficial/apery/releases) (Linux, macOS, Windows; amd64 + arm64).
 
-**Go install** (requires Go 1.24+):
+**Go install** (requires Go 1.27+):
 
 ```bash
 go install github.com/compuficial/apery/cmd/apery@latest
 ```
 
-**From source** (requires Go 1.24+):
+**From source** (requires Go 1.27+):
 
 ```bash
 git clone https://github.com/compuficial/apery.git
@@ -103,7 +103,7 @@ $ apery generate -f plan.yaml | head -3
 
 ## Generators
 
-Run `apery list generators` to see all available generators, or `apery describe generator <name>` for full config docs.
+Run `apery list generators` to see all available generators, or `apery describe generator <name>` for full config docs. Any field can also set `null_rate: 0.2` to make that fraction of its values null.
 
 ### Scalar
 
@@ -117,11 +117,15 @@ Run `apery list generators` to see all available generators, or `apery describe 
 | `const` | Fixed value | `value: active` |
 | `regex` | String from pattern | `pattern: "[A-Z]{2}-\\d{6}"` |
 | `time` | Timestamp in range | `start: "2024-01-01", end: "2024-12-31"` |
+| `time_seq` | Increasing timestamps (event streams, logs) | `start: "2024-06-01", step: 90s, jitter: 30s` |
 | `uuid` | UUID v4 | — |
 | `ulid` | ULID | — |
 | `normal_int` | Gaussian integer | `mu: 50, sigma: 10` |
 | `normal_float` | Gaussian float | `mu: 0.0, sigma: 1.0` |
 | `zipf` | Zipf distribution | `s: 1.1, imax: 100` |
+| `lognormal` | Positive, long right tail (prices, durations) | `mu: 3.0, sigma: 0.5` |
+| `exponential` | Gaps between events | `mean: 300` |
+| `poisson` | Events per period (count) | `lambda: 4.5` |
 
 ### Composite
 
@@ -239,9 +243,12 @@ apery generate -f plan.yaml --output-dir ./out
 apery generate -f plan.yaml --output-dir ./out --split-entities
 apery generate -f plan.yaml --dry-run    # validate + show row estimates and columns
 apery generate -f plan.yaml --limit 5    # at most 5 rows per entity
+apery generate -f plan.yaml --entities Order -o csv   # one entity; its parents are generated, not written
 apery generate -f plan.yaml --seed 123   # override seed
 apery generate -f plan.yaml --verbose    # entity progress to stderr
 apery generate -f plan.yaml --debug      # full debug output to stderr
+
+apery verify -f plan.yaml --output-dir ./fixtures --split-entities   # files still match the plan? exit 4 if not
 
 apery validate -f plan.yaml              # validate a plan file (all problems at once)
 apery validate -f plan.yaml -o json      # machine-readable issues: path, code, message, hint
@@ -252,7 +259,7 @@ apery version                            # print version
 apery help <command>                     # help for any command
 ```
 
-**Exit codes:** `0` success, `1` validation error (plan, flags, unknown generator, bad config), `2` generation error, `3` I/O error, `130` interrupted.
+**Exit codes:** `0` success, `1` validation error (plan, flags, unknown generator, bad config), `2` generation error, `3` I/O error, `4` `verify` found a difference, `130` interrupted.
 
 Plans are strict: unknown keys (`confg:`, a misspelled `mni:`) are errors with a "did you mean" hint, never silently ignored. Multi-entity CSV needs `--split-entities`. With `--output-dir`, files appear only when the whole run succeeds.
 

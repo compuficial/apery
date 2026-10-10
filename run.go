@@ -56,6 +56,12 @@ func WithRowLimit(n int64) Option {
 	return runtime.WithRowLimit(n)
 }
 
+// WithEntities writes only the named entities, still generating the ones
+// they reference; written entities match a full run.
+func WithEntities(names ...string) Option {
+	return runtime.WithEntities(names...)
+}
+
 // ValidatePlan checks the plan's structure and builds every generator once,
 // returning a *ValidationError that lists all problems.
 func ValidatePlan(p *Plan) error {

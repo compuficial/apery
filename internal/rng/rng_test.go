@@ -109,7 +109,9 @@ func TestReseedMatchesNew(t *testing.T) {
 // Read fills 8 bytes per 64-bit draw, little-endian.
 func TestReadUsesWholeWords(t *testing.T) {
 	buf := make([]byte, 12)
-	New(SeedFromInt64(8)).Read(buf)
+	if _, err := New(SeedFromInt64(8)).Read(buf); err != nil {
+		t.Fatal(err)
+	}
 
 	src := rand.New(rand.NewPCG(uint64(SeedFromInt64(8)), 0))
 	want := make([]byte, 16)
@@ -186,6 +188,15 @@ func TestDigestsArePortable(t *testing.T) {
 		{"ExpTies", func(r *Rng) float64 { return portableExp(ties[r.Intn(len(ties))]) }, 0x49b05444f7ad36f2},
 		{"Log", func(r *Rng) float64 { return portableLog(math.Float64frombits(r.r.Uint64() >> 1)) }, 0x4606b1b7fbca835c},
 		{"Cos", func(r *Rng) float64 { return portableCos(float64(r.Float64() * 1000)) }, 0x4a2fe60b546fba39},
+		{"LogGamma", func(r *Rng) float64 { return logGamma(1 + float64(r.Float64()*1e6)) }, 0xb8a1e1e752bd6df0},
+		{"LogGammaShifted", func(r *Rng) float64 { return logGamma(1 + float64(r.Float64()*7)) }, 0x80467f1eac0b342},
+
+		{"LogNormal", func(r *Rng) float64 { return r.LogNormal(3, 0.5) }, 0x54737f37a9166cb4},
+		{"Exponential", func(r *Rng) float64 { return r.Exponential(300) }, 0x26b84e2ec5244deb},
+		{"PoissonMultiply", func(r *Rng) float64 { return float64(r.Poisson(3.5)) }, 0x172f0932ec2d3057},
+		{"PoissonSwitch", func(r *Rng) float64 { return float64(r.Poisson(10)) }, 0xa4c144cef58e5840},
+		{"PoissonPTRS", func(r *Rng) float64 { return float64(r.Poisson(50)) }, 0x7e05ecc9348eae5c},
+		{"PoissonHuge", func(r *Rng) float64 { return float64(r.Poisson(1e9)) }, 0x403bbdd83b59581f},
 
 		{"ZipfH", func(r *Rng) float64 { return z.h(float64(r.Float64() * 1e6)) }, 0xb30157e1a19b6288},
 		{"ZipfInvertUr", func(r *Rng) float64 { ur, _ := z.invert(r.Float64()); return ur }, 0x145010440d523d9},

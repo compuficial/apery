@@ -104,7 +104,7 @@ func init() {
 	MustRegisterInfo("list", GeneratorInfo{
 		Description: "Array of items from a single generator",
 		ConfigKeys: []ConfigKey{
-			{Name: "item", Type: "map[string]any", Required: true, Desc: "Sub-generator spec ({gen, config})"},
+			{Name: "item", Type: "map[string]any", Required: true, Desc: "Sub-generator spec ({gen, config, null_rate})"},
 			{Name: "len", Type: "int", Desc: "Fixed length (mutually exclusive with min_len/max_len)"},
 			{Name: "min_len", Type: "int", Desc: "Minimum length for variable-length mode"},
 			{Name: "max_len", Type: "int", Desc: "Maximum length for variable-length mode"},

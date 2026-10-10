@@ -274,8 +274,66 @@ func TestDescribePlanSchema(t *testing.T) {
 	if code != exitOK || json.Unmarshal([]byte(stdout), &schema) != nil {
 		t.Fatalf("code=%d stdout=%.200s", code, stdout)
 	}
-	if schema["$schema"] == nil || !strings.Contains(stdout, `"const": "rel_ref"`) {
+	if schema["$schema"] == nil || !strings.Contains(stdout, `"const": "rel_ref"`) || !strings.Contains(stdout, `"null_rate"`) {
 		t.Fatalf("schema missing expected content: %.300s", stdout)
+	}
+}
+
+// A null renders as an empty CSV cell and a JSON null.
+func TestGenerate_NullRate(t *testing.T) {
+	path := writeFile(t, t.TempDir(), "plan.yaml", `seed: 1
+entities:
+  - name: U
+    count: 4
+    fields:
+      - {name: id, gen: seq}
+      - {name: x, gen: const, config: {value: v}, null_rate: 1}
+`)
+	stdout, stderr, code := runCLI(t, "generate", "-f", path, "-o", "csv")
+	if code != exitOK || stdout != "_entity,id,x\nU,1,\nU,2,\nU,3,\nU,4,\n" {
+		t.Fatalf("csv: code=%d stdout=%q stderr=%s", code, stdout, stderr)
+	}
+	stdout, _, code = runCLI(t, "generate", "-f", path, "--limit", "1")
+	if code != exitOK || stdout != `{"_entity":"U","id":1,"x":null}`+"\n" {
+		t.Fatalf("jsonl: code=%d stdout=%q", code, stdout)
+	}
+}
+
+// --entities writes one entity of a multi-entity plan, so it can stream as
+// CSV, and its rows match the full run.
+func TestGenerate_Entities(t *testing.T) {
+	path := writeFile(t, t.TempDir(), "plan.yaml", twoEntityPlan)
+	full, _, _ := runCLI(t, "generate", "-f", path)
+	var want strings.Builder
+	for line := range strings.Lines(full) {
+		if strings.HasPrefix(line, `{"_entity":"Order"`) {
+			want.WriteString(line)
+		}
+	}
+
+	got, stderr, code := runCLI(t, "generate", "-f", path, "--entities", "Order")
+	if code != exitOK || got != want.String() || want.Len() == 0 {
+		t.Fatalf("code=%d stderr=%s\ngot  %q\nwant %q", code, stderr, got, want.String())
+	}
+
+	csv, _, code := runCLI(t, "generate", "-f", path, "--entities", " Order,Order ", "-o", "csv")
+	if code != exitOK || !strings.HasPrefix(csv, "_entity,user_id,total\nOrder,") {
+		t.Errorf("csv: code=%d stdout=%.80q", code, csv)
+	}
+
+	dry, _, code := runCLI(t, "generate", "-f", path, "--entities", "Order", "--dry-run")
+	if code != exitOK || !strings.Contains(dry, "User (dependency)") || !strings.Contains(dry, "not written") {
+		t.Errorf("dry-run: code=%d stdout=%s", code, dry)
+	}
+
+	_, stderr, code = runCLI(t, "generate", "-f", path, "--entities", "Ordr")
+	if code != exitValidation || !strings.Contains(stderr, `no entity named "Ordr" to select (did you mean "Order"?)`) {
+		t.Errorf("unknown entity: code=%d stderr=%s", code, stderr)
+	}
+
+	_, stderr, code = runCLI(t, "generate", "-f", path, "--entities", "User,Order", "-o", "csv")
+	if code != exitValidation || !strings.Contains(stderr, "writes 2") {
+		t.Errorf("csv with two entities: code=%d stderr=%s", code, stderr)
 	}
 }
 

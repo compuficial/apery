@@ -129,6 +129,8 @@ func (v *validator) checkDrivenBy(e *EntitySpec, entityPath string) {
 		v.add(at(".entity", "driven_by_order"), "driven_by entity %q not declared before %q", db.Entity, e.Name)
 	} else if !parentFields[db.Field] {
 		v.add(at(".field", "driven_by_field"), "driven_by field '%s' does not exist in entity %q", db.Field, db.Entity)
+	} else if isNullable(v.entitySpecs[db.Entity], db.Field) {
+		v.add(at(".field", "nullable_parent_key"), "driven_by field '%s' has a null_rate; children would point at null parents", db.Field)
 	}
 
 	// Injected columns must be valid names, distinct, and not shadow fields.
@@ -194,6 +196,9 @@ func (v *validator) checkField(f *FieldSpec, e *EntitySpec, path string, seen ma
 	if f.Gen == "" {
 		v.add(at(".gen", "missing_generator"), "missing generator")
 	}
+	if !(f.NullRate >= 0 && f.NullRate <= 1) {
+		v.add(at(".null_rate", "invalid_null_rate"), "null_rate must be between 0 and 1, got %v", f.NullRate)
+	}
 
 	for key := range f.Config {
 		if strings.HasPrefix(key, "_") {
@@ -204,6 +209,16 @@ func (v *validator) checkField(f *FieldSpec, e *EntitySpec, path string, seen ma
 	if f.Gen == "rel_ref" {
 		v.checkRelRef(f, e, at)
 	}
+}
+
+// isNullable reports whether e declares field with a null_rate.
+func isNullable(e *EntitySpec, field string) bool {
+	for _, f := range e.Fields {
+		if f.Name == field {
+			return f.NullRate > 0
+		}
+	}
+	return false
 }
 
 func (v *validator) checkRelRef(f *FieldSpec, e *EntitySpec, at func(suffix, code string) Issue) {

@@ -77,7 +77,7 @@ go test ./internal/runtime -run TestStress -v
    - `Get()` rejects config keys missing from the generator's `GeneratorInfo.ConfigKeys` (typed `UnknownKeyError` with suggestions); keys starting with `_` are reserved for the executor (`_env`)
    - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
-   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `regex`, `normal_int`, `normal_float`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `expr`, `date_offset`, `rel_ref`
+   - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `time_seq`, `regex`, `normal_int`, `normal_float`, `lognormal`, `exponential`, `poisson`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `expr`, `date_offset`, `rel_ref`
    - Interfaces: `Generator`, `RowAwareGenerator`, `DependencyDeclarer`, `ReadOnlyEntityStore`, `EntityStore`, `Resettable`, `Seekable`, `StoreConsumer`
    - `Env` (passed as `_env`): per-run base dir and cache so each `file`/`url` value source loads once
 
@@ -175,7 +175,7 @@ Key design rules:
 2. Implement `Generator` interface
 3. Register in `init()` function with factory
 4. Factory should validate config and return generator instance; register `GeneratorInfo` whose `ConfigKeys` list every key the factory reads (`Get` rejects the rest, and `TestGeneratorExamplesBuild` checks each `Example`)
-   - Per-row state → implement `Seekable` or `Resettable`; reads other entities → implement `StoreConsumer`
+   - Per-row state → implement `Seekable` (e.g. `seq`, `time_seq`) or `Resettable`; reads other entities → implement `StoreConsumer`
 5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, row-aware, relational, or dependent)
 6. Regenerate golden files: `go test ./internal/runtime -run TestGolden -update -v`
 7. Review the golden file diff and commit
@@ -186,6 +186,7 @@ The registry is global and thread-safe via init-time registration.
 
 - `cmd/apery/main.go`: Cobra root command, version subcommand, exit codes
 - `cmd/apery/generate.go`: Generate subcommand with all flags and writer wiring
+- `cmd/apery/verify.go`: Verify subcommand (same flags as generate; compares instead of writing)
 - `cmd/apery/validate.go`: Validate subcommand
 - `cmd/apery/generators.go`: `list generators` and `describe generator|plan-schema` subcommands (`-o json|yaml`)
 - `cmd/apery/main_test.go`: In-process CLI tests (`run(args, stdout, stderr)` returns the exit code)
@@ -204,13 +205,17 @@ The registry is global and thread-safe via init-time registration.
 - `internal/runtime/executor.go`: Execution orchestrator with slog-based structured logging
 - `internal/runtime/compile.go`: `Validate` and the compile step (build every generator once)
 - `internal/runtime/pipeline.go`: Ordered streaming of chunks to the writer
+- `internal/runtime/select.go`: `--entities` / `WithEntities`: which entities a run generates and writes
+- `internal/suggest/suggest.go`: "did you mean" matching shared by the registry and runtime
 - `internal/runtime/driven_by.go`: Driven-by execution path and layout computation
 - `internal/runtime/entity_store.go`: Cross-entity column store
 - `internal/writer/jsonl.go`: JSONL output writer (file, io.Writer, split mode)
 - `internal/writer/csv.go`: CSV output writer (file, io.Writer, split mode)
 - `internal/writer/split.go`: Per-entity file routing writer
+- `internal/writer/compare.go`: `Comparer` checks output against existing files; `Mismatch` reports the first difference
 - `internal/rng/rng.go`: Deterministic RNG with seed derivation
-- `internal/rng/portable_math.go`: Exp/Log/Cos that round identically on every CPU (used by `NormFloat64` and `Zipf`); `TestDigestsArePortable` pins their bits
+- `internal/rng/portable_math.go`: Exp/Log/Cos that round identically on every CPU; `TestDigestsArePortable` pins their bits
+- `internal/rng/distributions.go`: LogNormal, Exponential, and Poisson samplers (portable math)
 - `run.go`: Public API re-exports for library usage
 
 ## Design Documents
@@ -221,7 +226,7 @@ The registry is global and thread-safe via init-time registration.
 ## Module Information
 
 - Module name: `github.com/compuficial/apery`
-- Go version: 1.24.3
+- Go version: 1.27
 - External dependencies:
   - `github.com/google/uuid` - UUID generation
   - `github.com/oklog/ulid/v2` - ULID generation

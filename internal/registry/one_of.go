@@ -76,7 +76,7 @@ func init() {
 	MustRegisterInfo("one_of", GeneratorInfo{
 		Description: "Randomly dispatch to one of several generators",
 		ConfigKeys: []ConfigKey{
-			{Name: "generators", Type: "[]any", Required: true, Desc: "Array of generator specs ({gen, config})"},
+			{Name: "generators", Type: "[]any", Required: true, Desc: "Array of generator specs ({gen, config, null_rate})"},
 			{Name: "weights", Type: "[]any", Desc: "Optional weights for non-uniform selection"},
 		},
 		Example: `- name: contact

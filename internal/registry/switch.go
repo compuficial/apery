@@ -28,7 +28,10 @@ func (s *SwitchGenerator) NextWithRow(r *rng.Rng, row RowContext) (any, error) {
 		return nil, fmt.Errorf("switch: key field '%s' not found in row context", s.key)
 	}
 
-	keyStr := fmt.Sprint(keyVal)
+	keyStr := "null" // a null key selects the "null" case, if any
+	if keyVal != nil {
+		keyStr = fmt.Sprint(keyVal)
+	}
 	gen, matched := s.cases[keyStr]
 	if !matched {
 		if s.fallback != nil {

@@ -41,9 +41,7 @@ func streamChunks(ctx context.Context, chunks []chunk, workers int, run chunkRun
 	slots := make(chan struct{}, window)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer close(todo)
 		for _, ch := range chunks {
 			select {
@@ -57,12 +55,10 @@ func streamChunks(ctx context.Context, chunks []chunk, workers int, run chunkRun
 				return
 			}
 		}
-	}()
+	})
 
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for ch := range todo {
 				records, err := run(ctx, ch)
 				select {
@@ -71,7 +67,7 @@ func streamChunks(ctx context.Context, chunks []chunk, workers int, run chunkRun
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	err := emitInOrder(ctx, len(chunks), done, slots, emit)

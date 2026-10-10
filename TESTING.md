@@ -55,6 +55,7 @@ go test ./internal/registry -run Determinism
 ```bash
 gofmt -l .                                              # must print nothing
 go vet ./...
-go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...  # needs a Go 1.24 toolchain: GOTOOLCHAIN=go1.24.3
+go run honnef.co/go/tools/cmd/staticcheck@v0.7.0-0.dev.0.20261009230814-452d5bb86b45 ./...  # same pin as ci.yml
+golangci-lint run ./...                                  # default linters; keep at 0 issues (local only, not in CI)
 go test -race ./...
 ```

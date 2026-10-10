@@ -33,7 +33,7 @@ a stable code, a message, and an optional hint.`,
 	}
 	cmd.Flags().StringP("file", "f", "", "Plan file path (required)")
 	cmd.Flags().StringP("output", "o", "text", "Output format: text, json")
-	cmd.MarkFlagRequired("file")
+	markRequired(cmd, "file")
 	return cmd
 }
 
@@ -57,7 +57,9 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "Plan is valid.")
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Plan is valid."); err != nil {
+			return withCode(exitIO, err)
+		}
 		return nil
 	}
 
@@ -95,8 +97,7 @@ func issuesOf(err error) []plan.Issue {
 	if err == nil {
 		return []plan.Issue{}
 	}
-	var invalid *plan.ValidationError
-	if errors.As(err, &invalid) {
+	if invalid, ok := errors.AsType[*plan.ValidationError](err); ok {
 		return invalid.Issues
 	}
 	return []plan.Issue{{Code: "parse_error", Message: err.Error()}}

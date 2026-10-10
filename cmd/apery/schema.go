@@ -112,6 +112,8 @@ func generatorSchema(info registry.GeneratorInfo) schema {
 			"name":   schema{"$ref": "#/$defs/name"},
 			"gen":    schema{"const": info.Name},
 			"config": config,
+			"null_rate": schema{"type": "number", "minimum": 0, "maximum": 1,
+				"description": "Fraction of rows whose value is null"},
 		},
 	}
 }

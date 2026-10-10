@@ -37,11 +37,13 @@ defaults, examples) for programmatic use.`,
 			}
 
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tDESCRIPTION")
+			table := &printer{w: tw}
+			table.println("NAME\tDESCRIPTION")
 			for _, info := range infos {
-				fmt.Fprintf(tw, "%s\t%s\n", info.Name, info.Description)
+				table.printf("%s\t%s\n", info.Name, info.Description)
 			}
-			return tw.Flush()
+			table.check(tw.Flush())
+			return table.err
 		},
 	}
 	generators.Flags().StringP("output", "o", "table", "Output format: table, json, yaml")
@@ -101,13 +103,15 @@ plans before running 'apery validate', which performs the full checks.`,
 }
 
 func printGeneratorInfo(w io.Writer, info registry.GeneratorInfo) error {
-	fmt.Fprintf(w, "Generator: %s\n", info.Name)
-	fmt.Fprintf(w, "Description: %s\n", info.Description)
+	out := &printer{w: w}
+	out.printf("Generator: %s\n", info.Name)
+	out.printf("Description: %s\n", info.Description)
 
 	if len(info.ConfigKeys) > 0 {
-		fmt.Fprintln(w, "\nConfig:")
+		out.println("\nConfig:")
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "  KEY\tTYPE\tREQUIRED\tDEFAULT\tDESCRIPTION")
+		table := &printer{w: tw}
+		table.println("  KEY\tTYPE\tREQUIRED\tDEFAULT\tDESCRIPTION")
 		for _, ck := range info.ConfigKeys {
 			req := ""
 			if ck.Required {
@@ -117,22 +121,21 @@ func printGeneratorInfo(w io.Writer, info registry.GeneratorInfo) error {
 			if def == "" {
 				def = "-"
 			}
-			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", ck.Name, ck.Type, req, def, ck.Desc)
+			table.printf("  %s\t%s\t%s\t%s\t%s\n", ck.Name, ck.Type, req, def, ck.Desc)
 		}
-		if err := tw.Flush(); err != nil {
-			return err
-		}
+		table.check(tw.Flush())
+		out.check(table.err)
 	} else {
-		fmt.Fprintln(w, "\nConfig: none")
+		out.println("\nConfig: none")
 	}
 
 	if info.Example != "" {
-		fmt.Fprintln(w, "\nExample:")
-		for _, line := range strings.Split(info.Example, "\n") {
-			fmt.Fprintf(w, "  %s\n", line)
+		out.println("\nExample:")
+		for line := range strings.SplitSeq(info.Example, "\n") {
+			out.printf("  %s\n", line)
 		}
 	}
-	return nil
+	return out.err
 }
 
 // printStructured writes v as indented JSON or as YAML.

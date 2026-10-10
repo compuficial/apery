@@ -11,8 +11,10 @@ const (
 	defaultNormalSigma = 1.0
 )
 
-// NormalFloatGenerator generates random floats following a normal (Gaussian) distribution
+// NormalFloatGenerator generates floats from a distribution parameterized
+// by mu and sigma: normal for normal_float, log-normal for lognormal.
 type NormalFloatGenerator struct {
+	draw     func(r *rng.Rng, mu, sigma float64) float64
 	mu       float64
 	sigma    float64
 	hasClamp bool
@@ -22,7 +24,7 @@ type NormalFloatGenerator struct {
 
 // Next returns the next generated float value.
 func (g *NormalFloatGenerator) Next(r *rng.Rng) (any, error) {
-	val := r.Normal(g.mu, g.sigma)
+	val := g.draw(r, g.mu, g.sigma)
 
 	if g.hasClamp {
 		val = max(g.clampMin, min(g.clampMax, val))
@@ -75,16 +77,17 @@ func parseNormalConfig(config map[string]any, gen string) (normalConfig, error) 
 	return nc, nil
 }
 
-// init registers the normal_float generator.
-func init() {
-	MustRegister("normal_float", func(config map[string]any) (Generator, error) {
-		nc, err := parseNormalConfig(config, "normal_float")
+// normalFloatFactory builds a NormalFloatGenerator that samples with draw.
+func normalFloatFactory(gen string, draw func(r *rng.Rng, mu, sigma float64) float64) Factory {
+	return func(config map[string]any) (Generator, error) {
+		nc, err := parseNormalConfig(config, gen)
 		if err != nil {
 			return nil, err
 		}
 
 		// A single bound leaves the other side open.
 		g := &NormalFloatGenerator{
+			draw:     draw,
 			mu:       nc.mu,
 			sigma:    nc.sigma,
 			hasClamp: nc.hasMin || nc.hasMax,
@@ -98,7 +101,12 @@ func init() {
 			g.clampMax = nc.clampMax
 		}
 		return g, nil
-	})
+	}
+}
+
+// init registers the normal_float generator.
+func init() {
+	MustRegister("normal_float", normalFloatFactory("normal_float", (*rng.Rng).Normal))
 	MustRegisterInfo("normal_float", GeneratorInfo{
 		Description: "Normally distributed float (Gaussian)",
 		ConfigKeys: []ConfigKey{

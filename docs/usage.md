@@ -92,6 +92,68 @@ apery generate -f examples/users.yaml --output-dir ./out
 cat ./out/output.jsonl
 ```
 
+### Null values
+
+Add `null_rate` to any field to make that fraction of its values null. The other rows keep exactly the values they would have without it.
+
+```bash
+cat > /tmp/nulls.yaml <<'EOF'
+seed: 7
+entities:
+  - name: User
+    count: 5
+    fields:
+      - name: id
+        gen: seq
+      - name: phone
+        gen: regex
+        config:
+          pattern: "555-[0-9]{4}"
+        null_rate: 0.4
+      - name: label
+        gen: template
+        config:
+          tpl: "user {id}: {phone}"
+EOF
+
+apery generate -f /tmp/nulls.yaml -o csv
+```
+
+JSONL writes `null`, CSV an empty cell. `expr` and `date_offset` return null when an input is null, `template` renders it as empty text, and `rel_ref` never picks a null. Composite children take `null_rate` too, nulling just that child: `fields: {email: {gen: regex, config: {...}, null_rate: 0.4}}` inside an `object`.
+
+### Realistic shapes and event streams
+
+Uniform values rarely look real. Use `lognormal` for prices and durations, `exponential` for gaps between events, `poisson` for counts, and `time_seq` for timestamps that move forward row by row.
+
+```bash
+cat > /tmp/events.yaml <<'EOF'
+seed: 11
+entities:
+  - name: Event
+    count: 5
+    fields:
+      - name: at
+        gen: time_seq
+        config:
+          start: "2024-06-01T09:00:00Z"
+          step: 90s
+          jitter: 30s
+      - name: basket_eur
+        gen: lognormal
+        config: {mu: 3.0, sigma: 0.5}   # median about e^3 = 20
+      - name: think_seconds
+        gen: exponential
+        config: {mean: 40, clamp_max: 600}
+      - name: items
+        gen: poisson
+        config: {lambda: 2.5}
+EOF
+
+apery generate -f /tmp/events.yaml | jq -c '{at, basket_eur, think_seconds, items}'
+```
+
+`time_seq` steps are Go durations (`90s`, `15m`, `24h`); `jitter` must be smaller than `step`, which keeps every timestamp later than the one before.
+
 ### 2. Composite — Users with Addresses
 
 Create `examples/composite.yaml`:
@@ -282,6 +344,11 @@ head -3 ./out/Review.jsonl
 
 # Check order count per user (driven_by 1-5)
 cat ./out/Order.jsonl | jq -r '.user_id' | sort -n | uniq -c | sort -rn | head -10
+
+# Only the orders, as CSV: User and Product are generated so the
+# references stay valid, but not written. Rows match the full run.
+apery generate -f examples/ecommerce.yaml --entities Order --dry-run
+apery generate -f examples/ecommerce.yaml --entities Order -o csv | head -3
 
 # Check zipf distribution on reviews (some users get way more)
 cat ./out/Review.jsonl | jq -r '.user_id' | sort -n | uniq -c | sort -rn | head -10
@@ -491,4 +558,24 @@ apery generate -f examples/ecommerce.yaml -o csv; echo "exit: $?"
 apery generate -f examples/ecommerce.yaml -o csv --output-dir ./out --split-entities
 ```
 
-Exit codes: `0` success, `1` validation (plan, flags, unknown generator, bad config), `2` generation, `3` I/O, `130` interrupted (Ctrl+C stops the run promptly). With `--output-dir`, a failed or interrupted run leaves no partial files.
+Exit codes: `0` success, `1` validation (plan, flags, unknown generator, bad config), `2` generation, `3` I/O, `4` `verify` found a difference, `130` interrupted (Ctrl+C stops the run promptly). With `--output-dir`, a failed or interrupted run leaves no partial files.
+
+## Check Committed Test Data
+
+If generated files are committed (test fixtures, demo data), `apery verify` checks they still match the plan. It takes the same flags as the `generate` command that made them and writes nothing.
+
+```bash
+apery generate -f examples/ecommerce.yaml --output-dir ./fixtures --split-entities
+apery verify -f examples/ecommerce.yaml --output-dir ./fixtures --split-entities
+# OK: ./fixtures matches the plan (rows: User 100, Product 50, Order 292, Review 500)
+
+# Edit a fixture by hand, and verify points at it (exit 4)
+sed -i '1s/"quantity":[0-9]*/"quantity":99/' ./fixtures/Order.jsonl
+apery verify -f examples/ecommerce.yaml --output-dir ./fixtures --split-entities; echo "exit: $?"
+# MISMATCH: fixtures/Order.jsonl:1: content differs
+#   want: {"user_id":1,"order_id":1,"product_id":24,"quantity":7}
+#   got:  {"user_id":1,"order_id":1,"product_id":24,"quantity":99}
+# exit: 4
+```
+
+In CI, run `apery verify` after changing a plan: a non-zero exit means the committed data is stale, and re-running the `generate` command fixes it. `--report json` gives the same result for scripts.

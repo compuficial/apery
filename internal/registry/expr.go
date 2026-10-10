@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"github.com/compuficial/apery/internal/rng"
 	"go/ast"
@@ -10,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 )
+
+// errNullOperand reports that an expression references a null value. The
+// result is then null rather than an error, as in SQL.
+var errNullOperand = errors.New("expr: null operand")
 
 // ExprGenerator evaluates an arithmetic expression over {field} references in the current row.
 type ExprGenerator struct {
@@ -24,6 +29,9 @@ func (g *ExprGenerator) Next(_ *rng.Rng) (any, error) {
 // NextWithRow evaluates the expression against the current row.
 func (g *ExprGenerator) NextWithRow(_ *rng.Rng, row RowContext) (any, error) {
 	f, err := g.expr.eval(row)
+	if errors.Is(err, errNullOperand) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +99,9 @@ func evalNode(e ast.Expr, fields map[string]string, row RowContext) (float64, er
 		v, ok := row.Get(name)
 		if !ok {
 			return 0, fmt.Errorf("expr: field %q not found in row context", name)
+		}
+		if v == nil {
+			return 0, errNullOperand
 		}
 		f, ok := toNumber(v)
 		if !ok {

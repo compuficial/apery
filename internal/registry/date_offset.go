@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"github.com/compuficial/apery/internal/rng"
 	"math"
@@ -38,6 +39,9 @@ func (g *DateOffsetGenerator) NextWithRow(_ *rng.Rng, row RowContext) (any, erro
 		if !ok {
 			return nil, fmt.Errorf("date_offset: base field %q not found in row context", g.baseField)
 		}
+		if v == nil {
+			return nil, nil // a null base gives a null date
+		}
 		s, ok := v.(string)
 		if !ok {
 			return nil, fmt.Errorf("date_offset: base field %q must be a string date, got %T", g.baseField, v)
@@ -51,6 +55,9 @@ func (g *DateOffsetGenerator) NextWithRow(_ *rng.Rng, row RowContext) (any, erro
 	}
 
 	f, err := g.amount.eval(row)
+	if errors.Is(err, errNullOperand) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

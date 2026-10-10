@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/compuficial/apery/internal/rng"
 	"regexp/syntax"
+	"slices"
 	"strings"
 )
 
@@ -295,8 +296,8 @@ func analyzeConcat(subs []*syntax.Regexp, inQuantifier bool) (regexInfo, error) 
 	}
 
 	suffixEmpty := true
-	for i := len(infos) - 1; i >= 0; i-- {
-		info := infos[i]
+	for _, info := range slices.Backward(infos) {
+
 		if info.hasEnd && !suffixEmpty {
 			return regexInfo{}, fmt.Errorf("regex: end anchors are only supported at the end of a concatenation")
 		}

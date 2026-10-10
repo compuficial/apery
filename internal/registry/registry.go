@@ -10,10 +10,12 @@ package registry
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/compuficial/apery/internal/rng"
+	"github.com/compuficial/apery/internal/suggest"
 )
 
 // GeneratorInfo describes a generator for CLI help and agent discovery.
@@ -158,7 +160,7 @@ func checkConfigKeys(name string, config map[string]any) error {
 		if strings.HasPrefix(key, "_") || contains(allowed, key) {
 			continue
 		}
-		unknown = append(unknown, UnknownKey{Name: key, Suggestion: closestKey(key, allowed)})
+		unknown = append(unknown, UnknownKey{Name: key, Suggestion: suggest.Closest(key, allowed)})
 	}
 	if len(unknown) == 0 {
 		return nil
@@ -167,46 +169,7 @@ func checkConfigKeys(name string, config map[string]any) error {
 }
 
 func contains(list []string, s string) bool {
-	for _, item := range list {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
-
-// closestKey returns the candidate within edit distance 2 of key, if any.
-// Example: closestKey("mni", ["min", "max"]) == "min".
-func closestKey(key string, candidates []string) string {
-	const maxDistance = 2
-	best, bestDist := "", maxDistance+1
-	for _, c := range candidates {
-		if d := editDistance(key, c); d < bestDist {
-			best, bestDist = c, d
-		}
-	}
-	return best
-}
-
-// editDistance is the Levenshtein distance between a and b.
-func editDistance(a, b string) int {
-	prev := make([]int, len(b)+1)
-	cur := make([]int, len(b)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(a); i++ {
-		cur[0] = i
-		for j := 1; j <= len(b); j++ {
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-		}
-		prev, cur = cur, prev
-	}
-	return prev[len(b)]
+	return slices.Contains(list, s)
 }
 
 // MustRegisterInfo adds metadata for a previously registered generator and panics if the generator is unknown.
@@ -245,7 +208,7 @@ func FactoryFor(name string) (Factory, error) {
 			names = append(names, n)
 		}
 		sort.Strings(names)
-		return nil, &UnknownGeneratorError{Name: name, Suggestion: closestKey(name, names)}
+		return nil, &UnknownGeneratorError{Name: name, Suggestion: suggest.Closest(name, names)}
 	}
 	return factory, nil
 }

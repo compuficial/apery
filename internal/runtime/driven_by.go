@@ -36,7 +36,7 @@ func computeDrivenByLayout(entitySeed rng.Seed, db *plan.DrivenBy, injections []
 	var total int64
 
 	countBaseSeed := rng.Derive(entitySeed, "counts")
-	for i := int64(0); i < n; i++ {
+	for i := range n {
 		countSeed := rng.DeriveIndex(countBaseSeed, i)
 		r := rng.New(countSeed)
 		count := db.Min

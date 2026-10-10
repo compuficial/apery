@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -47,6 +48,16 @@ var scalarPlan = plan.Plan{
 			{Name: "local_ts", Gen: "time", Config: map[string]any{
 				"start": "2024-01-01", "end": "2024-12-31", "tz": "America/New_York",
 			}},
+			{Name: "nickname", Gen: "pick", Config: map[string]any{
+				"values": []any{"Ace", "Bee", "Cy"},
+			}, NullRate: 0.25},
+			{Name: "price", Gen: "lognormal", Config: map[string]any{"mu": 3.0, "sigma": 0.5}},
+			{Name: "wait", Gen: "exponential", Config: map[string]any{"mean": 300.0, "clamp_max": 3600.0}},
+			{Name: "visits", Gen: "poisson", Config: map[string]any{"lambda": 3.5}},
+			{Name: "views", Gen: "poisson", Config: map[string]any{"lambda": 250.0}},
+			{Name: "logged_at", Gen: "time_seq", Config: map[string]any{
+				"start": "2024-06-01T00:00:00Z", "step": "90s", "jitter": "30s",
+			}},
 		}},
 	},
 }
@@ -84,6 +95,22 @@ var compositePlan = plan.Plan{
 				},
 				"weights": []any{7.0, 3.0},
 			}},
+			// Composite children with null_rate: an object field and the
+			// items of a nested list.
+			{Name: "contact", Gen: "object", Config: map[string]any{
+				"fields": map[string]any{
+					"email": map[string]any{"gen": "regex", "config": map[string]any{
+						"pattern": "[a-z]{5}@example\\.com",
+					}, "null_rate": 0.4},
+					"phones": map[string]any{"gen": "list", "config": map[string]any{
+						"item": map[string]any{"gen": "regex", "config": map[string]any{
+							"pattern": "555-[0-9]{4}",
+						}, "null_rate": 0.2},
+						"min_len": 1,
+						"max_len": 3,
+					}},
+				},
+			}},
 		}},
 	},
 }
@@ -108,6 +135,19 @@ var rowAwarePlan = plan.Plan{
 				},
 				"default": map[string]any{"gen": "const", "config": map[string]any{"value": "limited"}},
 			}},
+			// Nulls flow into row-aware fields: expr gives null, template "".
+			{Name: "bonus", Gen: "int", Config: map[string]any{"min": 1, "max": 10}, NullRate: 0.3},
+			{Name: "bonus_score", Gen: "expr", Config: map[string]any{"expr": "{bonus} * {score}"}},
+			{Name: "bonus_note", Gen: "template", Config: map[string]any{"tpl": "bonus={bonus}"}},
+			{Name: "perk", Gen: "switch", Config: map[string]any{
+				"key": "department",
+				"cases": map[string]any{
+					"engineering": map[string]any{"gen": "template", "config": map[string]any{
+						"tpl": "{department} laptop",
+					}, "null_rate": 0.5},
+				},
+				"default": map[string]any{"gen": "const", "config": map[string]any{"value": "none"}},
+			}},
 		}},
 	},
 }
@@ -131,6 +171,9 @@ var relationalPlan = plan.Plan{
 				"entity": "Product", "field": "id",
 			}},
 			{Name: "amount", Gen: "int", Config: map[string]any{"min": 1, "max": 10}},
+			{Name: "placed_at", Gen: "time_seq", Config: map[string]any{
+				"start": "2024-01-01", "step": "1h", "jitter": "59m",
+			}},
 		}},
 		{Name: "Review", Count: 200, Fields: []plan.FieldSpec{
 			{Name: "customer_id", Gen: "rel_ref", Config: map[string]any{
@@ -140,6 +183,9 @@ var relationalPlan = plan.Plan{
 				"entity": "Product", "field": "id",
 			}},
 			{Name: "rating", Gen: "int", Config: map[string]any{"min": 1, "max": 5}},
+			{Name: "referrer_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Customer", "field": "id",
+			}, NullRate: 0.4},
 		}},
 		// Unique draws: one batch per standalone entity, one per parent for
 		// driven_by. Both must be independent of chunk size and workers.
@@ -212,6 +258,20 @@ func runPlanWithOpts(t *testing.T, p *plan.Plan, opts ...Option) []byte {
 	return buf.Bytes()
 }
 
+// dumpOutput saves data for debugging a failure and returns where. It uses
+// the system temp dir because t.TempDir is removed when the test ends.
+func dumpOutput(name string, data []byte) string {
+	f, err := os.CreateTemp("", "apery-"+name+"-*.jsonl")
+	if err != nil {
+		return "(not saved: " + err.Error() + ")"
+	}
+	_, err = f.Write(data)
+	if err = errors.Join(err, f.Close()); err != nil {
+		return "(not saved: " + err.Error() + ")"
+	}
+	return f.Name()
+}
+
 // computeDigest returns the SHA-256 hex string of the given bytes.
 func computeDigest(data []byte) string {
 	h := sha256.Sum256(data)
@@ -269,10 +329,8 @@ func compareGolden(t *testing.T, name string, data []byte) {
 	gotDigest := computeDigest(data)
 
 	if gotDigest != string(wantDigest) {
-		actualPath := filepath.Join(t.TempDir(), name+".actual.jsonl")
-		os.WriteFile(actualPath, data, 0644)
 		t.Fatalf("digest mismatch for %s:\n  want: %s\n  got:  %s\n  actual output dumped to: %s",
-			name, wantDigest, gotDigest, actualPath)
+			name, wantDigest, gotDigest, dumpOutput(name+".actual", data))
 	}
 
 	spotPath := filepath.Join(goldenDir, name+".jsonl")

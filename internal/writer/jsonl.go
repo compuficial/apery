@@ -9,7 +9,7 @@ import (
 )
 
 type JSONLWriter struct {
-	file       *os.File
+	file       io.Closer // nil when writing to a caller's io.Writer
 	buf        *bufio.Writer
 	omitEntity bool
 	line       []byte // encode buffer reused across records

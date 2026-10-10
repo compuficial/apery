@@ -18,10 +18,7 @@ func makeChunks(total int64, size int64) []chunk {
 	chunks := make([]chunk, 0, capacity)
 	index := 0
 	for start := int64(0); start < total; start += size {
-		end := start + size
-		if end > total {
-			end = total
-		}
+		end := min(start+size, total)
 		chunks = append(chunks, chunk{Start: start, End: end, Index: index})
 		index++
 	}

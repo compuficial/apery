@@ -11,7 +11,7 @@ import (
 )
 
 type CSVWriter struct {
-	file       *os.File
+	file       io.Closer // nil when writing to a caller's io.Writer
 	w          *csv.Writer
 	keys       []string
 	entity     string // the stream's only entity, set by the first record

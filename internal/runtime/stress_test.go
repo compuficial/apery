@@ -1,8 +1,6 @@
 package runtime
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/compuficial/apery/internal/rng"
@@ -28,11 +26,8 @@ func TestStress(t *testing.T) {
 				actualDigest := computeDigest(actual)
 
 				if actualDigest != baselineDigest {
-					dir := t.TempDir()
-					basePath := filepath.Join(dir, "baseline.jsonl")
-					actPath := filepath.Join(dir, "actual.jsonl")
-					os.WriteFile(basePath, baseline, 0644)
-					os.WriteFile(actPath, actual, 0644)
+					basePath := dumpOutput(tc.name+".baseline", baseline)
+					actPath := dumpOutput(tc.name+".actual", actual)
 					t.Fatalf("iteration %d (workers=%d, chunkSize=%d): digest mismatch\n  baseline: %s\n  actual:   %s\n  diff: %s vs %s",
 						i, workers, chunkSize, baselineDigest, actualDigest, basePath, actPath)
 				}

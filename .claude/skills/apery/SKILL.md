@@ -51,6 +51,9 @@ entities:
 
 - Entities are processed **in declared order** — declare upstream entities before any that reference them via `rel_ref`.
 - Every field has `name`, `gen`, and an optional `config: {...}` block whose shape depends on the generator (use `apery describe generator <name>`).
+- Pick the distribution that matches the quantity: `lognormal` for prices, incomes, and durations (positive, long right tail; `mu`/`sigma` are in log space, so the median is e^mu), `exponential` for gaps between events (`mean`), `poisson` for counts per period (`lambda`), `normal_float`/`normal_int` for symmetric measurements, `zipf` for popularity skew. Uniform `int`/`float` rarely looks real.
+- For event streams and logs, use `time_seq` (`start`, `step: 90s`, optional `jitter` below `step`): timestamps increase row by row, which `time` (random within a range) doesn't do. Per-parent timelines (each user's events starting at their signup) are `date_offset` over `{signup}` with `driven_by`'s `index_as`.
+- For missing data, add `null_rate: 0.2` to a field (any generator). Nulls render as `null` in JSONL and an empty cell in CSV; `expr`/`date_offset` over a null give null, `template` renders it as empty text, and `rel_ref` never picks a null. Composite children take it too (`{gen: ..., config: ..., null_rate: 0.3}` nulls just that child). Validation rejects it on a `driven_by` parent key.
 - Set `seed` explicitly at the top level (it defaults to 0 when omitted). The user can override it at run time with `--seed`.
 - Plans are strict: every key must be one the schema or the generator declares. A typo fails validation with a "did you mean" suggestion.
 
@@ -121,8 +124,11 @@ Field order matters: `expr`/`date_offset` can only reference fields declared **b
 # Generate JSONL to stdout (pipe-friendly)
 apery generate -f plan.yaml
 
-# CSV (one entity per stream: multi-entity plans need --output-dir ./out --split-entities)
+# CSV (one entity per stream: multi-entity plans need --output-dir ./out --split-entities, or --entities)
 apery generate -f plan.yaml -o csv
+
+# One table only; entities it references are generated but not written, rows match a full run
+apery generate -f plan.yaml --entities Order -o csv
 
 # Write to directory (single output.jsonl)
 apery generate -f plan.yaml --output-dir ./out
@@ -144,13 +150,16 @@ apery generate -f plan.yaml --seed 123 --workers 8   # defaults use every core; 
 apery generate -f plan.yaml --verbose          # entity-level
 apery generate -f plan.yaml --debug            # + seeds, chunks, layout
 
+# Committed data still matches the plan? Same flags as the generate that made it; exit 4 = drifted
+apery verify -f plan.yaml --output-dir ./fixtures --split-entities
+
 # Discovery
 apery list generators                          # -o json for full metadata
 apery describe generator <name>                # -o json for machine-readable
 apery describe plan-schema                     # JSON Schema for plan files
 ```
 
-Exit codes: `0` success, `1` validation/plan error, `2` generation error, `3` I/O error, `130` interrupted. With `--output-dir`, files appear only when the run succeeds.
+Exit codes: `0` success, `1` validation/plan error, `2` generation error, `3` I/O error, `4` `verify` found a difference, `130` interrupted. With `--output-dir`, files appear only when the run succeeds.
 
 ## Pitfalls to avoid
 

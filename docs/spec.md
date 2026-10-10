@@ -14,7 +14,7 @@ See [`docs/usage.md`](usage.md) for a practical walkthrough with worked examples
 - **Interface**: a single CLI (`apery`) and a small Go library (`github.com/compuficial/apery`).
 - **Input**: a declarative plan in YAML or JSON.
 - **Output**: streaming JSONL or CSV — stdout, a file, or one file per entity.
-- **Runtime**: Go 1.24+, single static binary, no runtime dependencies.
+- **Runtime**: Go 1.27+, single static binary, no runtime dependencies.
 
 Apery is designed to be driven by agents and scripts first. Silent stdout, machine-parseable output, explicit exit codes, and structured stderr logging make it predictable to automate.
 
@@ -104,9 +104,10 @@ type ParentField struct {
 }
 
 type FieldSpec struct {
-    Name   string         `yaml:"name"             json:"name"`
-    Gen    string         `yaml:"gen"              json:"gen"`
-    Config map[string]any `yaml:"config,omitempty" json:"config,omitempty"`
+    Name     string         `yaml:"name"                json:"name"`
+    Gen      string         `yaml:"gen"                 json:"gen"`
+    Config   map[string]any `yaml:"config,omitempty"    json:"config,omitempty"`
+    NullRate float64        `yaml:"null_rate,omitempty" json:"null_rate,omitempty"` // fraction of rows that are null (see 4.4)
 }
 ```
 
@@ -124,6 +125,11 @@ entities:
         gen: regex
         config:
           pattern: "[a-z]{5,10}@(gmail|yahoo)\\.com"
+      - name: phone
+        gen: regex
+        config:
+          pattern: "\\+1-[0-9]{3}-[0-9]{4}"
+        null_rate: 0.2          # 20% of users have no phone
 
   - name: Order
     driven_by:
@@ -167,6 +173,7 @@ Problems are returned as a `*plan.ValidationError` holding `Issue`s. Each issue 
 - At least one field must be defined.
 - Field names within an entity must be unique. The columns `driven_by` injects (`As`, every `expose` alias, and `index_as`) must be distinct from each other and must not collide with a declared field.
 - Config keys with a leading underscore (`_env`, etc.) are reserved and rejected.
+- `null_rate` is between 0 and 1 (`invalid_null_rate`).
 
 **Generators** (stage 2)
 - The generator exists (`unknown_generator`, with a "did you mean" hint).
@@ -178,8 +185,19 @@ Problems are returned as a `*plan.ValidationError` holding `Issue`s. Each issue 
 - A `DrivenBy` parent entity must be declared before the child.
 - `DrivenBy.Field` and every `DrivenBy.Expose[i].Field` must exist on the parent entity (including the parent's own injected columns, if any).
 - `DrivenBy.Min >= 1` and `DrivenBy.Max >= DrivenBy.Min`.
+- `DrivenBy.Field` must not have a `null_rate`: children would point at a null parent (`nullable_parent_key`). Exposed columns may be nullable.
 - A `rel_ref` target entity must be declared before the referencing entity, and the target field must exist on it.
 - For `unique: true` `rel_ref`, draws can't exceed the target entity's `Count`: per parent batch (`DrivenBy.Max`) in a `driven_by` entity, across the whole entity (`Count`) otherwise.
+
+### 4.4 Null values
+
+Any field can set `null_rate`, the fraction of rows (0 to 1) whose value is null. It works with every generator.
+
+- The null decision draws from its own seed stream (`Derive(fieldSeed, "null")`, then the row index), and the generator still runs on null rows. Rows that aren't null are identical to the same plan without `null_rate`, and stateful generators (`seq`, unique `rel_ref`) stay in step. A unique `rel_ref` still uses up a value on a null row.
+- Row-aware fields see the null: `expr` and `date_offset` return null when any input is null (as in SQL), `template` renders it as empty text, and `switch` matches a case named `"null"`, falling back to `default`.
+- `rel_ref` skips nulls in the target column: a null is not a reference. A target column holding only nulls is an error.
+- Output: JSONL writes `null`; CSV writes an empty cell.
+- Composite children (`object` fields, `list` items, `one_of` generators, `switch` cases and default) take `null_rate` too: `{gen: int, config: {...}, null_rate: 0.3}` nulls that child's value, not the whole field. The decision draws from `Derive(childSeed, "null")` after the child runs, with the same guarantees as above.
 
 ---
 
@@ -199,6 +217,10 @@ Problems are returned as a `*plan.ValidationError` holding `Issue`s. Each issue 
 | `normal_int`   | —                  | `mu` (=0.0), `sigma` (=1.0), `clamp_min`, `clamp_max` | `int64`  | Gaussian integer with optional clamp |
 | `normal_float` | —                  | `mu` (=0.0), `sigma` (=1.0), `clamp_min`, `clamp_max` | `float64`| Gaussian float with optional clamp |
 | `zipf`         | —                  | `s` (=1.1), `v` (=1.0), `imax` (=100)   | `uint64` | Zipf-distributed integer |
+| `lognormal`    | —                  | `mu` (=0.0), `sigma` (=1.0), in log space; `clamp_min`, `clamp_max` | `float64`| Positive with a long right tail (prices, durations); median e^mu |
+| `exponential`  | —                  | `mean` (=1.0, > 0), `clamp_max`         | `float64`| Gaps between independent events (rate = 1/mean) |
+| `poisson`      | —                  | `lambda` (=1.0, > 0, <= 1e15)           | `int64`  | Count of events per period; mean and variance are `lambda` |
+| `time_seq`     | `start`, `step` (Go duration: `"90s"`, `"24h"`) | `jitter` (duration < `step`), `format` (=RFC3339), `tz` | `string` | Increasing timestamps: row i is `start + i*step` plus up to `jitter`, so each is later than the last. Seekable (like `seq`), so chunking doesn't change it; under `driven_by` it is one timeline across all children. Rows times step must stay within about 292 years |
 | `pick`         | one of `values` \| `file` \| `url` | `weights` (inline values only), `allowlist` (required with `url`) | any | Random selection from inline list, file, or URL |
 | `uuid`         | —                  | —                                       | `string` | UUID v4 |
 | `ulid`         | —                  | —                                       | `string` | ULID (sortable) |
@@ -222,7 +244,7 @@ Problems are returned as a `*plan.ValidationError` holding `Issue`s. Each issue 
 
 `template` and `switch` are **row-aware**: they read previously generated fields in the current row. Both declare their field dependencies so the executor can enforce earlier-field ordering.
 
-Composites can nest each other freely, but not stateful or entity-reading generators, and (except `switch` cases) not row-aware ones; see §4.3. Each child spec takes only `gen` and `config`.
+Composites can nest each other freely, but not stateful or entity-reading generators, and (except `switch` cases) not row-aware ones; see §4.3. Each child spec takes only `gen`, `config`, and `null_rate` (§4.4).
 
 ### 5.3 Computed (row-aware)
 
@@ -536,7 +558,7 @@ Format is `jsonl` or `csv`. Files are created lazily on first write. Entity name
 
 This holds across:
 - Worker count, chunk size, and `GOMAXPROCS`.
-- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width). Float math rounds every product (`a + float64(b*c)`), so CPUs that fuse multiply-add (arm64, amd64 with `GOAMD64=v3`) give the same bits as amd64. `NormFloat64` and the Zipf sampler (`zipf`, and `rel_ref` with `distribution: zipf`) use portable `Exp`, `Log`, and `Cos` because the stdlib versions differ per architecture.
+- Platform (explicit `int64` / `float64` throughout; no dependency on host-native integer width). Float math rounds every product (`a + float64(b*c)`), so CPUs that fuse multiply-add (arm64, amd64 with `GOAMD64=v3`) give the same bits as amd64. `NormFloat64`, the `lognormal`/`exponential`/`poisson` samplers, and the Zipf sampler (`zipf`, and `rel_ref` with `distribution: zipf`) use portable `Exp`, `Log`, `Cos`, and log-gamma because the stdlib versions differ per architecture.
 - Field ordering within composite generators (sub-seeds derive from names, not positions).
 - `driven_by` child counts (each parent's child count is derived from the parent index, not execution order).
 - Hosts with different time zone databases (zone rules are embedded in the binary).
@@ -561,6 +583,7 @@ Defined in [`cmd/apery/generate.go`](../cmd/apery/generate.go).
 | `--split-entities`   | `false` | One file per entity (requires `--output-dir`) |
 | `--dry-run`          | `false` | Validate the plan (including generators) and print per-entity row estimates and columns; produce no data |
 | `--limit`            | —       | Generate at most N rows per entity, `driven_by` children included. References sample from the capped rows, so values can differ from a full run |
+| `--entities`         | all     | Write only these entities (comma-separated). Their `driven_by` parents and `rel_ref` targets are still generated, transitively, but not written, and only for the columns later entities read (plus the fields those depend on). Every entity and field has its own seed, so every written entity is byte-identical to a full run. Unknown names fail validation (`unknown_entity`, with a "did you mean"). A single selected entity can stream as CSV |
 | `--seed`             | —       | Override the plan's seed |
 | `--workers`          | auto    | Parallel worker count (auto = `min(NumCPU, 64)`) |
 | `--chunk-size`       | `10000` | Rows per chunk |
@@ -579,7 +602,30 @@ User    100             id, email
 Order   100-500 (~300)  user_id, order_id, total
 ```
 
-### 10.2 `apery validate`
+With `--entities Order`, `User` is listed as `User (dependency)` with a note that it is generated but not written.
+
+### 10.2 `apery verify`
+
+```
+apery verify -f plan.yaml --output-dir ./fixtures --split-entities
+apery verify -f plan.yaml --output-dir ./fixtures --split-entities --report json
+```
+
+Regenerates the plan and compares the result, byte for byte, with files an earlier `apery generate` wrote to `--output-dir`, without writing anything. It takes the same flags as `generate` (all of §10.1 except `--dry-run`), so the check for a directory is its generate command with the verb swapped. `--output-dir` is required.
+
+The output is compared as it streams, through the same encoders `generate` uses, so the first difference stops the run. It is reported with the file, the 1-based line, the reason, and both versions of the line (cut to 200 bytes):
+
+| Reason | Meaning |
+|--------|---------|
+| `content differs` | A line differs |
+| `file ends early` | The file is shorter than the output |
+| `file has extra data` | The file continues past the output |
+| `missing file` | An expected file doesn't exist |
+| `unexpected file` | With `--split-entities` and no `--entities`, a `*.<format>` file that matches no entity in the plan (hidden files are ignored) |
+
+`--report json` prints `{"match": bool, "dir": ..., "entities": [{"name", "rows"}], "mismatch": {"file", "line", "reason", "want", "got"}}`; `entities` lists the rows checked when the files match. Exit code `4` means the files differ; plan, generation, and I/O problems keep their usual codes.
+
+### 10.3 `apery validate`
 
 ```
 apery validate -f plan.yaml
@@ -595,7 +641,7 @@ Loads the plan and runs both validation stages (§4.3). Prints `Plan is valid.` 
 
 On success, `entities` lists each entity's row estimate (`min`, `max`, `expected`) and columns.
 
-### 10.3 `apery list generators` / `apery describe generator <name>`
+### 10.4 `apery list generators` / `apery describe generator <name>`
 
 ```
 apery list generators                  # tabular list of all generators
@@ -609,11 +655,11 @@ apery describe plan-schema             # JSON Schema for plan files (also -o yam
 
 `describe plan-schema` prints a JSON Schema (draft 2020-12) for plan files, with one field variant per generator. Nested generator specs inside config are typed loosely; `apery validate` performs the full checks.
 
-### 10.4 `apery version`
+### 10.5 `apery version`
 
 Prints the injected build version. `apery --version` also works via Cobra.
 
-### 10.5 Exit codes
+### 10.6 Exit codes
 
 From [`cmd/apery/main.go`](../cmd/apery/main.go):
 
@@ -623,6 +669,7 @@ From [`cmd/apery/main.go`](../cmd/apery/main.go):
 | 1 | Plan, flag, or usage error, including unknown generators and bad generator config |
 | 2 | Generation error (a row failed to generate) |
 | 3 | I/O error (cannot create, write, or finalize output) |
+| 4 | `verify`: the files differ from what the plan generates |
 | 130 | Interrupted (SIGINT); generation stops promptly |
 
 ---
@@ -670,6 +717,7 @@ func WithLogger(l *slog.Logger) Option
 func WithWorkers(n int)         Option
 func WithChunkSize(n int64)     Option
 func WithRowLimit(n int64)      Option
+func WithEntities(names ...string) Option // write only these; dependencies are generated, not written
 
 // Run validates p, then streams records to w. Run owns w and closes it,
 // on success or failure.
