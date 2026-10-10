@@ -88,8 +88,8 @@ func WithRowLimit(n int64) Option {
 }
 
 // WithEntities writes only the named entities. Entities they reference are
-// still generated, but not written, so references stay valid and every
-// written entity matches a full run.
+// still generated, but not written and only for the columns that are read,
+// so references stay valid and every written entity matches a full run.
 func WithEntities(names ...string) Option {
 	return func(e *Executor) {
 		e.entities = names
@@ -124,10 +124,11 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 	if err != nil {
 		return err
 	}
-	sel, err := selectEntities(entities, e.entities)
+	written, err := selectEntities(entities, e.entities)
 	if err != nil {
 		return err
 	}
+	entities = entitiesToRun(entities, written)
 
 	store := newMapEntityStore()
 	required := requiredColumns(entities)
@@ -141,10 +142,7 @@ func (e *Executor) Run(ctx context.Context, p *plan.Plan) (err error) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !sel.generate[ent.spec.Name] {
-			continue
-		}
-		isWritten := sel.write[ent.spec.Name]
+		isWritten := written[ent.spec.Name]
 
 		entityStart := time.Now()
 		if db := ent.spec.DrivenBy; db != nil {

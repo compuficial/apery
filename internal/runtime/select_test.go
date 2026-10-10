@@ -110,3 +110,41 @@ func TestSelect_UnknownEntity(t *testing.T) {
 		t.Error("Run accepted an unknown entity")
 	}
 }
+
+// A dependency-only entity generates just the columns later entities read,
+// and the fields those depend on; the rest never run.
+func TestWithEntities_SkipsUnreadFields(t *testing.T) {
+	p := &plan.Plan{Seed: 5, Entities: []plan.EntitySpec{
+		{Name: "User", Count: 50, Fields: []plan.FieldSpec{
+			{Name: "id", Gen: "seq"},
+			{Name: "unread", Gen: "__test_counter"},
+			{Name: "first", Gen: "pick", Config: map[string]any{"values": []any{"Ann", "Bo"}}},
+			{Name: "handle", Gen: "template", Config: map[string]any{"tpl": "@{first}"}},
+		}},
+		{Name: "Post", Count: 20, Fields: []plan.FieldSpec{
+			{Name: "author", Gen: "rel_ref", Config: map[string]any{"entity": "User", "field": "handle"}},
+		}},
+	}}
+
+	before := generated.Load()
+	got := runPlanWithOpts(t, p, WithEntities("Post"))
+	if n := generated.Load() - before; n != 0 {
+		t.Errorf("the unread field generated %d values, want 0", n)
+	}
+	if want := linesOf(t, runPlanWithOpts(t, p), []string{"Post"}); !bytes.Equal(got, want) {
+		t.Errorf("Post differs from the full run:\n%s\nwant\n%s", got, want)
+	}
+
+	ents, err := compile(p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := entitiesToRun(ents, map[string]bool{"Post": true})
+	var kept []string
+	for _, f := range run[0].fields {
+		kept = append(kept, f.name)
+	}
+	if !slices.Equal(kept, []string{"first", "handle"}) {
+		t.Errorf("User keeps %v, want [first handle]", kept)
+	}
+}

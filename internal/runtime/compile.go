@@ -17,7 +17,11 @@ type compiledField struct {
 	config   map[string]any // plan config plus the run's Env
 	factory  registry.Factory
 	refs     []registry.ColumnRef // columns of earlier entities this field reads
+	deps     []string             // columns of its own row this field reads
 	nullRate float64              // fraction of rows set to null
+	// isBatchScoped is set when the generator keeps per-batch state
+	// (Resettable).
+	isBatchScoped bool
 }
 
 // compiledEntity is an entity whose generators have all been built once.
@@ -102,9 +106,7 @@ func compileEntity(e *plan.EntitySpec, index int, env *registry.Env) (compiledEn
 			continue // structural issue already reported by plan.Validate
 		}
 
-		if _, ok := gen.(registry.Resettable); ok {
-			ent.isBatchScoped = true
-		}
+		ent.isBatchScoped = ent.isBatchScoped || cf.isBatchScoped
 		ent.fields = append(ent.fields, cf)
 	}
 	return ent, issues
@@ -139,8 +141,10 @@ func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool) (
 		return compiledField{}, nil, issue
 	}
 
+	var deps []string
 	if dd, ok := gen.(registry.DependencyDeclarer); ok {
-		for _, dep := range dd.Dependencies() {
+		deps = dd.Dependencies()
+		for _, dep := range deps {
 			if !known[dep] {
 				return compiledField{}, nil, &plan.Issue{Path: ".config", Code: "dependency_order",
 					Message: fmt.Sprintf("field '%s' references '%s', which must be declared before it", f.Name, dep)}
@@ -148,7 +152,8 @@ func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool) (
 		}
 	}
 
-	cf := compiledField{name: f.Name, gen: f.Gen, config: config, factory: factory, nullRate: f.NullRate}
+	cf := compiledField{name: f.Name, gen: f.Gen, config: config, factory: factory, deps: deps, nullRate: f.NullRate}
+	_, cf.isBatchScoped = gen.(registry.Resettable)
 	if sc, ok := gen.(registry.StoreConsumer); ok {
 		cf.refs = sc.StoreRefs()
 	}

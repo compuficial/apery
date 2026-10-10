@@ -583,7 +583,7 @@ Defined in [`cmd/apery/generate.go`](../cmd/apery/generate.go).
 | `--split-entities`   | `false` | One file per entity (requires `--output-dir`) |
 | `--dry-run`          | `false` | Validate the plan (including generators) and print per-entity row estimates and columns; produce no data |
 | `--limit`            | —       | Generate at most N rows per entity, `driven_by` children included. References sample from the capped rows, so values can differ from a full run |
-| `--entities`         | all     | Write only these entities (comma-separated). Their `driven_by` parents and `rel_ref` targets are still generated, transitively, but not written, so every written entity is byte-identical to a full run. Unknown names fail validation (`unknown_entity`, with a "did you mean"). A single selected entity can stream as CSV |
+| `--entities`         | all     | Write only these entities (comma-separated). Their `driven_by` parents and `rel_ref` targets are still generated, transitively, but not written, and only for the columns later entities read (plus the fields those depend on). Every entity and field has its own seed, so every written entity is byte-identical to a full run. Unknown names fail validation (`unknown_entity`, with a "did you mean"). A single selected entity can stream as CSV |
 | `--seed`             | —       | Override the plan's seed |
 | `--workers`          | auto    | Parallel worker count (auto = `min(NumCPU, 64)`) |
 | `--chunk-size`       | `10000` | Rows per chunk |
