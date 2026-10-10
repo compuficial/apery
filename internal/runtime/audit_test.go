@@ -80,8 +80,7 @@ func TestRun_ValidatesGeneratorsBeforeWriting(t *testing.T) {
 	}}
 	w := &recordWriter{}
 	err := New(w).Run(context.Background(), p)
-	var verr *plan.ValidationError
-	if !errors.As(err, &verr) {
+	if _, ok := errors.AsType[*plan.ValidationError](err); !ok {
 		t.Fatalf("error %v is not a *plan.ValidationError", err)
 	}
 	if len(w.records) != 0 {

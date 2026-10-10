@@ -95,8 +95,7 @@ func issuesOf(err error) []plan.Issue {
 	if err == nil {
 		return []plan.Issue{}
 	}
-	var invalid *plan.ValidationError
-	if errors.As(err, &invalid) {
+	if invalid, ok := errors.AsType[*plan.ValidationError](err); ok {
 		return invalid.Issues
 	}
 	return []plan.Issue{{Code: "parse_error", Message: err.Error()}}

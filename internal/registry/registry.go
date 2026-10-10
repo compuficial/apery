@@ -10,6 +10,7 @@ package registry
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -167,12 +168,7 @@ func checkConfigKeys(name string, config map[string]any) error {
 }
 
 func contains(list []string, s string) bool {
-	for _, item := range list {
-		if item == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 // closestKey returns the candidate within edit distance 2 of key, if any.

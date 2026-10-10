@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/compuficial/apery/internal/plan"
@@ -131,8 +132,7 @@ func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool) (
 	if err != nil {
 		issue := &plan.Issue{Path: ".config", Code: "invalid_config", Message: err.Error(),
 			Hint: fmt.Sprintf("run 'apery describe generator %s'", f.Gen)}
-		var unknownKey *registry.UnknownKeyError
-		if errors.As(err, &unknownKey) {
+		if unknownKey, ok := errors.AsType[*registry.UnknownKeyError](err); ok {
 			issue.Code, issue.Hint = "unknown_config_key", unknownKey.Hint()
 		}
 		return compiledField{}, nil, issue
@@ -157,9 +157,7 @@ func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool) (
 // withEnv returns a copy of config carrying the run's Env.
 func withEnv(config map[string]any, env *registry.Env) map[string]any {
 	out := make(map[string]any, len(config)+1)
-	for k, v := range config {
-		out[k] = v
-	}
+	maps.Copy(out, config)
 	out[registry.EnvKey] = env
 	return out
 }

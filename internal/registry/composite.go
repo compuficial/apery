@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 )
 
@@ -89,9 +90,7 @@ func childConfig(raw any, parent map[string]any, where string) (map[string]any, 
 		return config, nil
 	}
 	withEnv := make(map[string]any, len(config)+1)
-	for k, v := range config {
-		withEnv[k] = v
-	}
+	maps.Copy(withEnv, config)
 	withEnv[EnvKey] = env
 	return withEnv, nil
 }

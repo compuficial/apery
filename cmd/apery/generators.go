@@ -128,7 +128,7 @@ func printGeneratorInfo(w io.Writer, info registry.GeneratorInfo) error {
 
 	if info.Example != "" {
 		fmt.Fprintln(w, "\nExample:")
-		for _, line := range strings.Split(info.Example, "\n") {
+		for line := range strings.SplitSeq(info.Example, "\n") {
 			fmt.Fprintf(w, "  %s\n", line)
 		}
 	}
