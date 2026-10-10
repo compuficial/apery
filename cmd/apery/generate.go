@@ -60,12 +60,19 @@ interrupted run leaves the directory untouched.`,
 		RunE: runGenerate,
 	}
 
+	addRunFlags(cmd)
+	cmd.Flags().Bool("dry-run", false, "Validate the plan and print row estimates and columns; generate nothing")
+	return cmd
+}
+
+// addRunFlags defines the flags generate and verify share, so a verify
+// command is the generate command with the verb swapped.
+func addRunFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
 	f.StringP("file", "f", "", "Plan file path (required)")
 	f.StringP("output", "o", "jsonl", "Output format: jsonl, csv")
 	f.String("output-dir", "", "Write output to directory instead of stdout")
 	f.Bool("split-entities", false, "Write one file per entity (requires --output-dir)")
-	f.Bool("dry-run", false, "Validate the plan and print row estimates and columns; generate nothing")
 	f.Int64("seed", 0, "Override the seed defined in the plan file")
 	f.Int("workers", 0, "Number of parallel workers, auto-detected if not set")
 	f.Int64("chunk-size", 0, "Rows per chunk, defaults to 10000 if not set")
@@ -74,16 +81,14 @@ interrupted run leaves the directory untouched.`,
 	f.Bool("verbose", false, "Show entity progress on stderr")
 	f.Bool("debug", false, "Show detailed debug output on stderr")
 	cmd.MarkFlagRequired("file")
-	return cmd
 }
 
-// generateOptions are the parsed generate flags.
-type generateOptions struct {
+// runOptions are the parsed flags generate and verify share.
+type runOptions struct {
 	file      string
 	format    string
 	outputDir string
 	split     bool
-	dryRun    bool
 	workers   int
 	chunkSize int64
 	limit     int64
@@ -91,14 +96,13 @@ type generateOptions struct {
 	logLevel  *slog.Level // nil = no logging
 }
 
-func parseGenerateFlags(cmd *cobra.Command) (generateOptions, error) {
+func parseRunFlags(cmd *cobra.Command) (runOptions, error) {
 	f := cmd.Flags()
-	var o generateOptions
+	var o runOptions
 	o.file, _ = f.GetString("file")
 	o.format, _ = f.GetString("output")
 	o.outputDir, _ = f.GetString("output-dir")
 	o.split, _ = f.GetBool("split-entities")
-	o.dryRun, _ = f.GetBool("dry-run")
 	o.workers, _ = f.GetInt("workers")
 	o.chunkSize, _ = f.GetInt64("chunk-size")
 	o.limit, _ = f.GetInt64("limit")
@@ -131,28 +135,16 @@ func parseGenerateFlags(cmd *cobra.Command) (generateOptions, error) {
 func runGenerate(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 
-	o, err := parseGenerateFlags(cmd)
+	o, err := parseRunFlags(cmd)
 	if err != nil {
 		return withCode(exitValidation, err)
 	}
-
-	p, err := plan.LoadFile(o.file)
+	p, err := loadRunPlan(cmd, o)
 	if err != nil {
-		return withCode(exitValidation, err)
-	}
-	if cmd.Flags().Changed("seed") {
-		p.Seed, _ = cmd.Flags().GetInt64("seed")
-	}
-	written := len(p.Entities)
-	if len(o.entities) > 0 {
-		written = len(o.entities)
-	}
-	if o.format == "csv" && !o.split && written > 1 {
-		return withCode(exitValidation, fmt.Errorf(
-			"CSV output holds one entity per stream and this run writes %d; use --output-dir with --split-entities, pick one with --entities, or use -o jsonl", written))
+		return err
 	}
 
-	if o.dryRun {
+	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		sel, err := runtime.Select(p, o.entities)
 		if err != nil {
 			return err
@@ -171,11 +163,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	if err := runtime.New(out.writer, executorOptions(o, cmd.ErrOrStderr())...).Run(ctx, p); err != nil {
 		out.discard()
-		var invalid *plan.ValidationError
-		if errors.As(err, &invalid) || errors.Is(err, context.Canceled) || errors.Is(err, runtime.ErrWrite) {
-			return err
-		}
-		return withCode(exitGeneration, err)
+		return runFailure(err)
 	}
 
 	if err := out.commit(); err != nil {
@@ -184,7 +172,39 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func executorOptions(o generateOptions, logOut io.Writer) []runtime.Option {
+// loadRunPlan loads the plan, applies --seed, and refuses CSV streams that
+// would hold more than one entity.
+func loadRunPlan(cmd *cobra.Command, o runOptions) (*plan.Plan, error) {
+	p, err := plan.LoadFile(o.file)
+	if err != nil {
+		return nil, withCode(exitValidation, err)
+	}
+	if cmd.Flags().Changed("seed") {
+		p.Seed, _ = cmd.Flags().GetInt64("seed")
+	}
+
+	written := len(p.Entities)
+	if len(o.entities) > 0 {
+		written = len(o.entities)
+	}
+	if o.format == "csv" && !o.split && written > 1 {
+		return nil, withCode(exitValidation, fmt.Errorf(
+			"CSV output holds one entity per stream and this run writes %d; use --output-dir with --split-entities, pick one with --entities, or use -o jsonl", written))
+	}
+	return p, nil
+}
+
+// runFailure gives a failed run its exit code. Plan, interrupt, and output
+// errors carry their own; anything else failed while generating rows.
+func runFailure(err error) error {
+	var invalid *plan.ValidationError
+	if errors.As(err, &invalid) || errors.Is(err, context.Canceled) || errors.Is(err, runtime.ErrWrite) {
+		return err
+	}
+	return withCode(exitGeneration, err)
+}
+
+func executorOptions(o runOptions, logOut io.Writer) []runtime.Option {
 	var opts []runtime.Option
 	if o.workers > 0 {
 		opts = append(opts, runtime.WithWorkers(o.workers))
@@ -265,7 +285,7 @@ type output struct {
 	dest    string
 }
 
-func newOutput(o generateOptions, stdout io.Writer) (*output, error) {
+func newOutput(o runOptions, stdout io.Writer) (*output, error) {
 	if o.outputDir == "" {
 		if o.format == "csv" {
 			return &output{writer: writer.NewCSVWriterFromWriter(stdout)}, nil

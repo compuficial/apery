@@ -603,7 +603,28 @@ Order   100-500 (~300)  user_id, order_id, total
 
 With `--entities Order`, `User` is listed as `User (dependency)` with a note that it is generated but not written.
 
-### 10.2 `apery validate`
+### 10.2 `apery verify`
+
+```
+apery verify -f plan.yaml --output-dir ./fixtures --split-entities
+apery verify -f plan.yaml --output-dir ./fixtures --split-entities --report json
+```
+
+Regenerates the plan and compares the result, byte for byte, with files an earlier `apery generate` wrote to `--output-dir`, without writing anything. It takes the same flags as `generate` (all of §10.1 except `--dry-run`), so the check for a directory is its generate command with the verb swapped. `--output-dir` is required.
+
+The output is compared as it streams, through the same encoders `generate` uses, so the first difference stops the run. It is reported with the file, the 1-based line, the reason, and both versions of the line (cut to 200 bytes):
+
+| Reason | Meaning |
+|--------|---------|
+| `content differs` | A line differs |
+| `file ends early` | The file is shorter than the output |
+| `file has extra data` | The file continues past the output |
+| `missing file` | An expected file doesn't exist |
+| `unexpected file` | With `--split-entities` and no `--entities`, a `*.<format>` file that matches no entity in the plan (hidden files are ignored) |
+
+`--report json` prints `{"match": bool, "dir": ..., "entities": [{"name", "rows"}], "mismatch": {"file", "line", "reason", "want", "got"}}`; `entities` lists the rows checked when the files match. Exit code `4` means the files differ; plan, generation, and I/O problems keep their usual codes.
+
+### 10.3 `apery validate`
 
 ```
 apery validate -f plan.yaml
@@ -619,7 +640,7 @@ Loads the plan and runs both validation stages (§4.3). Prints `Plan is valid.` 
 
 On success, `entities` lists each entity's row estimate (`min`, `max`, `expected`) and columns.
 
-### 10.3 `apery list generators` / `apery describe generator <name>`
+### 10.4 `apery list generators` / `apery describe generator <name>`
 
 ```
 apery list generators                  # tabular list of all generators
@@ -633,11 +654,11 @@ apery describe plan-schema             # JSON Schema for plan files (also -o yam
 
 `describe plan-schema` prints a JSON Schema (draft 2020-12) for plan files, with one field variant per generator. Nested generator specs inside config are typed loosely; `apery validate` performs the full checks.
 
-### 10.4 `apery version`
+### 10.5 `apery version`
 
 Prints the injected build version. `apery --version` also works via Cobra.
 
-### 10.5 Exit codes
+### 10.6 Exit codes
 
 From [`cmd/apery/main.go`](../cmd/apery/main.go):
 
@@ -647,6 +668,7 @@ From [`cmd/apery/main.go`](../cmd/apery/main.go):
 | 1 | Plan, flag, or usage error, including unknown generators and bad generator config |
 | 2 | Generation error (a row failed to generate) |
 | 3 | I/O error (cannot create, write, or finalize output) |
+| 4 | `verify`: the files differ from what the plan generates |
 | 130 | Interrupted (SIGINT); generation stops promptly |
 
 ---

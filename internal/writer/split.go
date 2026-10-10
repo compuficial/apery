@@ -1,8 +1,12 @@
 package writer
 
 import (
+	"bufio"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,14 +18,24 @@ import (
 type SplitWriter struct {
 	dir     string
 	format  string
+	open    func(path string) (io.WriteCloser, error)
 	writers map[string]Writer
 }
 
 // NewSplitWriter creates a writer that produces one file per entity in dir.
 func NewSplitWriter(dir, format string) *SplitWriter {
+	return NewSplitWriterFunc(dir, format, func(path string) (io.WriteCloser, error) {
+		return os.Create(path)
+	})
+}
+
+// NewSplitWriterFunc is NewSplitWriter with open in place of os.Create, for
+// example OpenComparer to check existing files instead of writing them.
+func NewSplitWriterFunc(dir, format string, open func(path string) (io.WriteCloser, error)) *SplitWriter {
 	return &SplitWriter{
 		dir:     dir,
 		format:  format,
+		open:    open,
 		writers: make(map[string]Writer),
 	}
 }
@@ -35,22 +49,19 @@ func (sw *SplitWriter) writerFor(entity string) (Writer, error) {
 	if entity == "" || entity == "." || entity == ".." || strings.ContainsAny(entity, `/\`) {
 		return nil, fmt.Errorf("split writer: entity name %q cannot be used as a file name", entity)
 	}
-	path := filepath.Join(sw.dir, entity+"."+sw.format)
-
-	var w Writer
-	var err error
-	switch sw.format {
-	case "jsonl":
-		w, err = NewJSONLWriterSplit(path)
-	case "csv":
-		w, err = NewCSVWriterSplit(path)
-	default:
+	if sw.format != "jsonl" && sw.format != "csv" {
 		return nil, fmt.Errorf("split writer: unsupported format %q", sw.format)
 	}
+	path := filepath.Join(sw.dir, entity+"."+sw.format)
+	f, err := sw.open(path)
 	if err != nil {
-		return nil, fmt.Errorf("split writer: create %s: %w", path, err)
+		return nil, fmt.Errorf("split writer: open %s: %w", path, err)
 	}
 
+	var w Writer = &JSONLWriter{file: f, buf: bufio.NewWriter(f), omitEntity: true}
+	if sw.format == "csv" {
+		w = &CSVWriter{file: f, w: csv.NewWriter(f), omitEntity: true}
+	}
 	sw.writers[entity] = w
 	return w, nil
 }

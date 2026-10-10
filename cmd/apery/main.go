@@ -9,6 +9,7 @@ import (
 
 	"github.com/compuficial/apery/internal/plan"
 	"github.com/compuficial/apery/internal/runtime"
+	"github.com/compuficial/apery/internal/writer"
 
 	"github.com/spf13/cobra"
 )
@@ -16,12 +17,13 @@ import (
 // Version is set at build time via -ldflags.
 var Version = "dev"
 
-// Exit codes are part of the CLI contract (docs/spec.md §10.5).
+// Exit codes are part of the CLI contract (docs/spec.md §10.6).
 const (
 	exitOK          = 0
 	exitValidation  = 1   // plan, flag, or usage error
 	exitGeneration  = 2   // failure while generating rows
 	exitIO          = 3   // cannot create, write, or finalize output
+	exitMismatch    = 4   // verify: files differ from what the plan generates
 	exitInterrupted = 130 // stopped by SIGINT (128 + 2)
 )
 
@@ -74,6 +76,8 @@ func exitCode(err error) int {
 		return exitValidation
 	case errors.Is(err, context.Canceled):
 		return exitInterrupted
+	case errors.Is(err, writer.ErrMismatch): // before ErrWrite, which wraps it
+		return exitMismatch
 	case errors.Is(err, runtime.ErrWrite):
 		return exitIO
 	default:
@@ -103,6 +107,7 @@ or 'apery list generators' to discover available generators.`,
 			},
 		},
 		newGenerateCmd(),
+		newVerifyCmd(),
 		newValidateCmd(),
 		newListCmd(),
 		newDescribeCmd(),

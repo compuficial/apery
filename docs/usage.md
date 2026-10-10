@@ -525,4 +525,24 @@ apery generate -f examples/ecommerce.yaml -o csv; echo "exit: $?"
 apery generate -f examples/ecommerce.yaml -o csv --output-dir ./out --split-entities
 ```
 
-Exit codes: `0` success, `1` validation (plan, flags, unknown generator, bad config), `2` generation, `3` I/O, `130` interrupted (Ctrl+C stops the run promptly). With `--output-dir`, a failed or interrupted run leaves no partial files.
+Exit codes: `0` success, `1` validation (plan, flags, unknown generator, bad config), `2` generation, `3` I/O, `4` `verify` found a difference, `130` interrupted (Ctrl+C stops the run promptly). With `--output-dir`, a failed or interrupted run leaves no partial files.
+
+## Check Committed Test Data
+
+If generated files are committed (test fixtures, demo data), `apery verify` checks they still match the plan. It takes the same flags as the `generate` command that made them and writes nothing.
+
+```bash
+apery generate -f examples/ecommerce.yaml --output-dir ./fixtures --split-entities
+apery verify -f examples/ecommerce.yaml --output-dir ./fixtures --split-entities
+# OK: ./fixtures matches the plan (rows: User 100, Product 50, Order 292, Review 500)
+
+# Edit a fixture by hand, and verify points at it (exit 4)
+sed -i '1s/"quantity":[0-9]*/"quantity":99/' ./fixtures/Order.jsonl
+apery verify -f examples/ecommerce.yaml --output-dir ./fixtures --split-entities; echo "exit: $?"
+# MISMATCH: fixtures/Order.jsonl:1: content differs
+#   want: {"user_id":1,"order_id":1,"product_id":24,"quantity":7}
+#   got:  {"user_id":1,"order_id":1,"product_id":24,"quantity":99}
+# exit: 4
+```
+
+In CI, run `apery verify` after changing a plan: a non-zero exit means the committed data is stale, and re-running the `generate` command fixes it. `--report json` gives the same result for scripts.

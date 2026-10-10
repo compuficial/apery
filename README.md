@@ -247,6 +247,8 @@ apery generate -f plan.yaml --seed 123   # override seed
 apery generate -f plan.yaml --verbose    # entity progress to stderr
 apery generate -f plan.yaml --debug      # full debug output to stderr
 
+apery verify -f plan.yaml --output-dir ./fixtures --split-entities   # files still match the plan? exit 4 if not
+
 apery validate -f plan.yaml              # validate a plan file (all problems at once)
 apery validate -f plan.yaml -o json      # machine-readable issues: path, code, message, hint
 apery list generators                    # list all generators (-o json|yaml for full metadata)
@@ -256,7 +258,7 @@ apery version                            # print version
 apery help <command>                     # help for any command
 ```
 
-**Exit codes:** `0` success, `1` validation error (plan, flags, unknown generator, bad config), `2` generation error, `3` I/O error, `130` interrupted.
+**Exit codes:** `0` success, `1` validation error (plan, flags, unknown generator, bad config), `2` generation error, `3` I/O error, `4` `verify` found a difference, `130` interrupted.
 
 Plans are strict: unknown keys (`confg:`, a misspelled `mni:`) are errors with a "did you mean" hint, never silently ignored. Multi-entity CSV needs `--split-entities`. With `--output-dir`, files appear only when the whole run succeeds.
 

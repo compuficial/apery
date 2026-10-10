@@ -149,13 +149,16 @@ apery generate -f plan.yaml --seed 123 --workers 8   # defaults use every core; 
 apery generate -f plan.yaml --verbose          # entity-level
 apery generate -f plan.yaml --debug            # + seeds, chunks, layout
 
+# Committed data still matches the plan? Same flags as the generate that made it; exit 4 = drifted
+apery verify -f plan.yaml --output-dir ./fixtures --split-entities
+
 # Discovery
 apery list generators                          # -o json for full metadata
 apery describe generator <name>                # -o json for machine-readable
 apery describe plan-schema                     # JSON Schema for plan files
 ```
 
-Exit codes: `0` success, `1` validation/plan error, `2` generation error, `3` I/O error, `130` interrupted. With `--output-dir`, files appear only when the run succeeds.
+Exit codes: `0` success, `1` validation/plan error, `2` generation error, `3` I/O error, `4` `verify` found a difference, `130` interrupted. With `--output-dir`, files appear only when the run succeeds.
 
 ## Pitfalls to avoid
 

@@ -186,6 +186,7 @@ The registry is global and thread-safe via init-time registration.
 
 - `cmd/apery/main.go`: Cobra root command, version subcommand, exit codes
 - `cmd/apery/generate.go`: Generate subcommand with all flags and writer wiring
+- `cmd/apery/verify.go`: Verify subcommand (same flags as generate; compares instead of writing)
 - `cmd/apery/validate.go`: Validate subcommand
 - `cmd/apery/generators.go`: `list generators` and `describe generator|plan-schema` subcommands (`-o json|yaml`)
 - `cmd/apery/main_test.go`: In-process CLI tests (`run(args, stdout, stderr)` returns the exit code)
@@ -211,6 +212,7 @@ The registry is global and thread-safe via init-time registration.
 - `internal/writer/jsonl.go`: JSONL output writer (file, io.Writer, split mode)
 - `internal/writer/csv.go`: CSV output writer (file, io.Writer, split mode)
 - `internal/writer/split.go`: Per-entity file routing writer
+- `internal/writer/compare.go`: `Comparer` checks output against existing files; `Mismatch` reports the first difference
 - `internal/rng/rng.go`: Deterministic RNG with seed derivation
 - `internal/rng/portable_math.go`: Exp/Log/Cos that round identically on every CPU; `TestDigestsArePortable` pins their bits
 - `internal/rng/distributions.go`: LogNormal, Exponential, and Poisson samplers (portable math)
