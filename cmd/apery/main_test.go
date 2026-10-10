@@ -337,6 +337,24 @@ func TestGenerate_Entities(t *testing.T) {
 	}
 }
 
+// A regex repeat above max_repeat is a plan error (exit 1) reported by
+// validate, not a generation failure on some row (exit 2).
+func TestValidate_RegexRepeatAboveMaxRepeat(t *testing.T) {
+	path := writeFile(t, t.TempDir(), "plan.yaml", `seed: 1
+entities:
+  - name: U
+    count: 3
+    fields:
+      - {name: bio, gen: regex, config: {pattern: "[a-z]{40,80}"}}
+`)
+	for _, cmd := range []string{"validate", "generate"} {
+		_, stderr, code := runCLI(t, cmd, "-f", path)
+		if code != exitValidation || !strings.Contains(stderr, "set max_repeat to at least 40") {
+			t.Errorf("%s: code=%d stderr=%s", cmd, code, stderr)
+		}
+	}
+}
+
 func TestMissingFileFlag(t *testing.T) {
 	if _, stderr, code := runCLI(t, "generate"); code != exitValidation || !strings.Contains(stderr, "file") {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
