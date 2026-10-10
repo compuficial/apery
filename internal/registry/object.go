@@ -1,14 +1,15 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 	"sort"
 )
 
 // ObjectGenerator generates composite objects from other generators with configurable fields
 type ObjectGenerator struct {
-	fields []objectField
+	fields  []objectField
+	scratch *rng.Rng // reseeded per sub-field; instances are chunk-local
 }
 
 type objectField struct {
@@ -19,9 +20,10 @@ type objectField struct {
 // Next generates a map with each field produced by its sub-generator
 func (o *ObjectGenerator) Next(r *rng.Rng) (any, error) {
 	result := make(map[string]any, len(o.fields))
+	seed := r.GetSeed()
 	for _, field := range o.fields {
-		childSeed := rng.Derive(r.GetSeed(), field.name)
-		val, err := field.gen.Next(rng.New(childSeed))
+		o.scratch.Reseed(rng.Derive(seed, field.name))
+		val, err := field.gen.Next(o.scratch)
 		if err != nil {
 			return nil, fmt.Errorf("object: field '%s': %w", field.name, err)
 		}
@@ -55,26 +57,11 @@ func validateObjectConfig(config map[string]any) ([]objectField, error) {
 
 	fields := make([]objectField, 0, len(names))
 	for _, name := range names {
-		spec, ok := fieldsMap[name].(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("object: field '%s' must be a map, got %T", name, fieldsMap[name])
-		}
-
-		genName, ok := spec["gen"].(string)
-		if !ok || genName == "" {
-			return nil, fmt.Errorf("object: field '%s' missing 'gen'", name)
-		}
-
-		genConfig, _ := spec["config"].(map[string]any)
-		if genConfig == nil {
-			genConfig = map[string]any{}
-		}
-
-		gen, err := Get(genName, genConfig)
+		where := fmt.Sprintf("object: field '%s'", name)
+		gen, err := buildSubGenerator(fieldsMap[name], config, where, nestPure)
 		if err != nil {
-			return nil, fmt.Errorf("object: field '%s': %w", name, err)
+			return nil, err
 		}
-
 		fields = append(fields, objectField{name: name, gen: gen})
 	}
 
@@ -89,7 +76,7 @@ func init() {
 			return nil, err
 		}
 
-		return &ObjectGenerator{fields: fields}, nil
+		return &ObjectGenerator{fields: fields, scratch: rng.New(0)}, nil
 	})
 	MustRegisterInfo("object", GeneratorInfo{
 		Description: "Nested object with named sub-fields",

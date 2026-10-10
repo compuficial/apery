@@ -66,29 +66,34 @@ func (l *drivenByLayout) parentForRow(globalRow int64) int64 {
 	return int64(idx - 1)
 }
 
-// makeDrivenByChunks creates parent-aligned chunks when unique fields exist,
-// or standard row-based chunks otherwise.
-func makeDrivenByChunks(layout *drivenByLayout, chunkSize int64, needsAlignment bool) []chunk {
-	if !needsAlignment {
-		return makeChunks(layout.total, chunkSize)
+// chunking says where driven_by chunk boundaries may fall.
+type chunking int
+
+const (
+	rowChunks           chunking = iota // any row
+	parentAlignedChunks                 // only between parents' batches
+)
+
+// makeDrivenByChunks splits the first total child rows into chunks. Batch-
+// scoped generators need parentAlignedChunks so a parent's state never
+// spans two workers.
+func makeDrivenByChunks(layout *drivenByLayout, total, chunkSize int64, mode chunking) []chunk {
+	if mode == rowChunks {
+		return makeChunks(total, chunkSize)
 	}
 
-	// Parent-aligned: each chunk boundary falls on a parent boundary.
 	var chunks []chunk
 	idx := 0
 	start := int64(0)
-	for start < layout.total {
-		end := start + chunkSize
-		if end > layout.total {
-			end = layout.total
-		}
+	for start < total {
+		end := min(start+chunkSize, total)
 		// Align end to the next parent boundary.
-		if end < layout.total {
+		if end < total {
 			parentIdx := layout.parentForRow(end - 1)
 			if parentIdx+1 < int64(len(layout.prefixSum)) {
-				end = layout.prefixSum[parentIdx+1]
+				end = min(layout.prefixSum[parentIdx+1], total)
 			} else {
-				end = layout.total
+				end = total
 			}
 		}
 		chunks = append(chunks, chunk{Start: start, End: end, Index: idx})
@@ -100,13 +105,8 @@ func makeDrivenByChunks(layout *drivenByLayout, chunkSize int64, needsAlignment 
 
 // runDrivenByEntity generates rows for an entity driven by a parent entity.
 // Phase 1: compute child counts per parent. Phase 2: chunked parallel generation.
-func (e *Executor) runDrivenByEntity(ctx context.Context, seed int64, entityIndex int, entity *plan.EntitySpec, store registry.ReadOnlyEntityStore) ([]*writer.OrderedMap, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	db := entity.DrivenBy
-	entitySeed := rng.Derive(rng.SeedFromInt64(seed), fmt.Sprintf("%s[%d]", entity.Name, entityIndex))
+func (e *Executor) runDrivenByEntity(ctx context.Context, entitySeed rng.Seed, ent *compiledEntity, fields []fieldRuntime, store registry.ReadOnlyEntityStore, emit func([]*writer.OrderedMap) error) (int64, error) {
+	db := ent.spec.DrivenBy
 
 	// Injected columns: the join key first, then Expose fields in declared order.
 	refs := append([]plan.ParentField{{Field: db.Field, As: db.As}}, db.Expose...)
@@ -114,42 +114,38 @@ func (e *Executor) runDrivenByEntity(ctx context.Context, seed int64, entityInde
 	for _, ref := range refs {
 		col, ok := store.GetColumn(db.Entity, ref.Field)
 		if !ok {
-			return nil, fmt.Errorf("driven_by: column %s.%s not found in store", db.Entity, ref.Field)
+			return 0, fmt.Errorf("driven_by: column %s.%s not found in store", db.Entity, ref.Field)
 		}
 		injections = append(injections, parentInjection{as: ref.ChildName(), values: col})
 	}
 
 	layout := computeDrivenByLayout(entitySeed, db, injections)
-	if layout.total == 0 {
-		return nil, nil
+	total := e.capRows(layout.total)
+	mode := rowChunks
+	if ent.isBatchScoped {
+		mode = parentAlignedChunks
 	}
+	chunks := makeDrivenByChunks(layout, total, e.chunkSize, mode)
 
-	fields, err := e.initFields(entity, entitySeed)
-	if err != nil {
-		return nil, err
-	}
+	e.logger.Debug("driven_by.layout", "entity", ent.spec.Name, "parent", db.Entity, "total_children", layout.total)
 
-	needsAlignment := hasUniqueRelRef(entity)
-	chunks := makeDrivenByChunks(layout, e.chunkSize, needsAlignment)
-
-	e.logger.Debug("driven_by.layout", "entity", entity.Name, "parent", db.Entity, "total_children", layout.total)
-
-	return e.runChunksParallel(ctx, chunks, e.workerCount(), func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
-		return e.runDrivenByChunk(ctx, entity, fields, ch, store, layout)
-	})
+	return total, streamChunks(ctx, chunks, e.workerCount(), func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
+		e.logger.Debug("chunk.start", "entity", ent.spec.Name, "chunk", ch.Index, "start", ch.Start, "end", ch.End)
+		cfs, err := instantiateFields(fields, store)
+		if err != nil {
+			return nil, err
+		}
+		if err := seekFields(cfs, ch.Start); err != nil {
+			return nil, err
+		}
+		return runDrivenByChunk(ctx, db, cfs, ch, layout)
+	}, emit)
 }
 
 // runDrivenByChunk generates rows for a driven_by entity chunk.
 // It tracks parent transitions linearly (O(1) amortized), injects the parent
 // value, and resets Resettable generators on parent transitions.
-func (e *Executor) runDrivenByChunk(ctx context.Context, entity *plan.EntitySpec, fields []fieldRuntime, ch chunk, store registry.ReadOnlyEntityStore, layout *drivenByLayout) ([]*writer.OrderedMap, error) {
-	db := entity.DrivenBy
-
-	chunkFields, err := instantiateChunkFields(fields, ch, store)
-	if err != nil {
-		return nil, err
-	}
-
+func runDrivenByChunk(ctx context.Context, db *plan.DrivenBy, chunkFields []chunkField, ch chunk, layout *drivenByLayout) ([]*writer.OrderedMap, error) {
 	// Precompute which fields are Resettable to avoid per-row type assertions.
 	resettables := make([]registry.Resettable, 0)
 	for _, cf := range chunkFields {
@@ -158,6 +154,11 @@ func (e *Executor) runDrivenByChunk(ctx context.Context, entity *plan.EntitySpec
 		}
 	}
 
+	width := len(layout.injections) + len(chunkFields)
+	if db.IndexAs != "" {
+		width++
+	}
+	r := rng.New(0)
 	records := make([]*writer.OrderedMap, 0, int(ch.End-ch.Start))
 
 	// Linear parent tracking: advance parentIdx when row crosses the boundary.
@@ -185,7 +186,7 @@ func (e *Executor) runDrivenByChunk(ctx context.Context, entity *plan.EntitySpec
 			}
 		}
 
-		record := writer.NewOrderedMap()
+		record := writer.NewOrderedMapSize(width)
 		// Inject parent columns before fields so row-aware generators can read them.
 		for _, inj := range layout.injections {
 			record.Set(inj.as, inj.values[parentIdx])
@@ -195,7 +196,7 @@ func (e *Executor) runDrivenByChunk(ctx context.Context, entity *plan.EntitySpec
 			record.Set(db.IndexAs, row-layout.prefixSum[parentIdx])
 		}
 
-		if err := generateFieldValues(chunkFields, row, record); err != nil {
+		if err := generateRow(chunkFields, row, record, r); err != nil {
 			return nil, err
 		}
 		records = append(records, record)

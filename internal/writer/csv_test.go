@@ -45,6 +45,7 @@ func TestCSVWriterNilRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCSVWriter: %v", err)
 	}
+	defer w.Close() // Windows can't remove the temp dir while the file is open
 
 	if err := w.WriteRecord("User", nil); err == nil {
 		t.Fatal("expected error for nil record")

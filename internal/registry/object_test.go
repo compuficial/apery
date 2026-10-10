@@ -1,8 +1,8 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 	"testing"
 )
 
@@ -111,7 +111,7 @@ func TestObjectGenerator_Config(t *testing.T) {
 					"name": map[string]any{"gen": "bool", "config": "bad"},
 				},
 			},
-			ExpectError: false, // config fails type assertion, falls back to empty map
+			ExpectError: true, // a non-map config must not be silently dropped
 		},
 	})
 }

@@ -10,6 +10,11 @@ package plan
 type Plan struct {
 	Seed     int64        `json:"seed" yaml:"seed"`
 	Entities []EntitySpec `json:"entities" yaml:"entities"`
+
+	// BaseDir is where relative paths in generator config (e.g. pick's
+	// file) resolve. LoadFile sets it to the plan file's directory; empty
+	// means the working directory.
+	BaseDir string `json:"-" yaml:"-"`
 }
 
 // EntitySpec defines a table/collection to generate.

@@ -1,8 +1,8 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 	"math"
 	"strings"
 	"time"

@@ -1,12 +1,16 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/compuficial/apery/internal/rng"
 )
 
 const pickGen = "pick"
@@ -235,5 +239,71 @@ func TestPickGenerator_WeightedDistribution(t *testing.T) {
 		if actual < tt.expected-distributionTolerance || actual > tt.expected+distributionTolerance {
 			t.Errorf("%s: expected ~%.2f, got %.4f", tt.value, tt.expected, actual)
 		}
+	}
+}
+
+// A redirect must not escape the allowlist.
+func TestPickGenerator_URLRedirectMustBeAllowlisted(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("leaked\n"))
+	}))
+	defer target.Close()
+	origin := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusFound))
+	defer origin.Close()
+
+	originHost := strings.TrimPrefix(origin.URL, "http://")
+	targetHost := strings.TrimPrefix(target.URL, "http://")
+
+	_, err := Get(pickGen, map[string]any{"url": origin.URL, "allowlist": []any{originHost}})
+	if err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("error = %v, want redirect rejected", err)
+	}
+
+	if _, err := Get(pickGen, map[string]any{"url": origin.URL, "allowlist": []any{originHost, targetHost}}); err != nil {
+		t.Fatalf("redirect within allowlist rejected: %v", err)
+	}
+}
+
+// Relative file paths resolve against the plan's directory, not the CWD.
+func TestPickGenerator_FileRelativeToBaseDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "names.txt"), []byte("ann\nbob\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Get(pickGen, map[string]any{"file": "names.txt", EnvKey: NewEnv(dir)}); err != nil {
+		t.Fatalf("relative file not resolved against base dir: %v", err)
+	}
+}
+
+// One run fetches each URL once, however many chunks or nested specs use it.
+func TestPickGenerator_SourceLoadedOncePerEnv(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte("a\nb\n"))
+	}))
+	defer server.Close()
+
+	env := NewEnv("")
+	cfg := map[string]any{"url": server.URL, "allowlist": []any{strings.TrimPrefix(server.URL, "http://")}}
+	for range 3 {
+		if _, err := Get(pickGen, map[string]any{"url": cfg["url"], "allowlist": cfg["allowlist"], EnvKey: env}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nested := map[string]any{"fields": map[string]any{"v": map[string]any{"gen": "pick", "config": cfg}}, EnvKey: env}
+	if _, err := Get("object", nested); err != nil {
+		t.Fatal(err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("url fetched %d times, want 1", got)
+	}
+}
+
+// sample shares pick's loaders but must report its own name.
+func TestSample_ErrorsUseOwnName(t *testing.T) {
+	_, err := Get("sample", map[string]any{"file": "/nonexistent/apery.txt", "n": 1})
+	if err == nil || !strings.HasPrefix(err.Error(), "sample:") {
+		t.Fatalf("error = %v, want sample: prefix", err)
 	}
 }

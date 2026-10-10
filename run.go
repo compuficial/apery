@@ -1,13 +1,14 @@
 package apery
 
 import (
+	"context"
+	"io"
+	"log/slog"
+
 	"github.com/compuficial/apery/internal/plan"
 	"github.com/compuficial/apery/internal/registry"
 	"github.com/compuficial/apery/internal/runtime"
 	"github.com/compuficial/apery/internal/writer"
-	"context"
-	"io"
-	"log/slog"
 )
 
 type (
@@ -15,6 +16,11 @@ type (
 	EntitySpec = plan.EntitySpec
 	FieldSpec  = plan.FieldSpec
 	DrivenBy   = plan.DrivenBy
+
+	// ValidationError lists every problem in a plan; each Issue has a path,
+	// a stable code, a message, and an optional hint.
+	ValidationError = plan.ValidationError
+	Issue           = plan.Issue
 
 	Writer     = writer.Writer
 	OrderedMap = writer.OrderedMap
@@ -45,8 +51,15 @@ func WithChunkSize(n int64) Option {
 	return runtime.WithChunkSize(n)
 }
 
+// WithRowLimit caps every entity at n rows, for previews.
+func WithRowLimit(n int64) Option {
+	return runtime.WithRowLimit(n)
+}
+
+// ValidatePlan checks the plan's structure and builds every generator once,
+// returning a *ValidationError that lists all problems.
 func ValidatePlan(p *Plan) error {
-	return plan.Validate(p)
+	return runtime.Validate(p)
 }
 
 func NewJSONLWriter(path string) (*writer.JSONLWriter, error) {
@@ -69,6 +82,8 @@ func NewSplitWriter(dir, format string) *writer.SplitWriter {
 	return writer.NewSplitWriter(dir, format)
 }
 
+// Run validates the plan and streams generated records to w. Run takes
+// ownership of w and closes it when done, whether or not generation succeeds.
 func Run(ctx context.Context, p *Plan, w Writer, opts ...Option) error {
 	executor := runtime.New(w, opts...)
 	return executor.Run(ctx, p)

@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/compuficial/apery/internal/plan"
 	"github.com/compuficial/apery/internal/runtime"
@@ -15,18 +19,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var generateCmd = &cobra.Command{
-	Use:   "generate",
-	Short: "Generate synthetic data from a plan file",
-	Long: `Generate reads a YAML or JSON plan file and produces synthetic data.
+func newGenerateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "generate",
+		Short: "Generate synthetic data from a plan file",
+		Long: `Generate reads a YAML or JSON plan file and produces synthetic data.
 Output goes to stdout by default (pipe-friendly). Use --output-dir to write files instead.
 
 By default all entities are written to a single stream. Use --split-entities with
---output-dir to write one file per entity.`,
-	Example: `  # Generate JSONL to stdout
+--output-dir to write one file per entity. CSV holds one entity per stream, so
+multi-entity CSV needs --split-entities.
+
+Files in --output-dir appear only when the whole run succeeds; a failed or
+interrupted run leaves the directory untouched.`,
+		Example: `  # Generate JSONL to stdout
   apery generate -f plan.yaml
 
-  # Generate CSV to stdout
+  # Generate CSV to stdout (single-entity plans)
   apery generate -f plan.yaml -o csv
 
   # Write to a directory
@@ -35,127 +44,240 @@ By default all entities are written to a single stream. Use --split-entities wit
   # One file per entity
   apery generate -f plan.yaml --output-dir ./out --split-entities
 
-  # Validate only (dry run)
+  # Preview: validate and show row estimates and columns, no data
   apery generate -f plan.yaml --dry-run
+
+  # Quick sample: at most 5 rows per entity
+  apery generate -f plan.yaml --limit 5
 
   # Override seed and worker count
   apery generate -f plan.yaml --seed 123 --workers 8`,
-	RunE: runGenerate,
-}
+		Args: cobra.NoArgs,
+		RunE: runGenerate,
+	}
 
-func init() {
-	f := generateCmd.Flags()
+	f := cmd.Flags()
 	f.StringP("file", "f", "", "Plan file path (required)")
 	f.StringP("output", "o", "jsonl", "Output format: jsonl, csv")
 	f.String("output-dir", "", "Write output to directory instead of stdout")
 	f.Bool("split-entities", false, "Write one file per entity (requires --output-dir)")
-	f.Bool("dry-run", false, "Validate plan without generating")
+	f.Bool("dry-run", false, "Validate the plan and print row estimates and columns; generate nothing")
 	f.Int64("seed", 0, "Override the seed defined in the plan file")
 	f.Int("workers", 0, "Number of parallel workers, auto-detected if not set")
-	f.Int64("chunk-size", 0, "Rows per chunk, defaults to 50000 if not set")
+	f.Int64("chunk-size", 0, "Rows per chunk, defaults to 10000 if not set")
+	f.Int64("limit", 0, "Generate at most N rows per entity (references sample from the capped rows)")
 	f.Bool("verbose", false, "Show entity progress on stderr")
 	f.Bool("debug", false, "Show detailed debug output on stderr")
+	cmd.MarkFlagRequired("file")
+	return cmd
+}
 
-	generateCmd.MarkFlagRequired("file")
-	rootCmd.AddCommand(generateCmd)
+// generateOptions are the parsed generate flags.
+type generateOptions struct {
+	file      string
+	format    string
+	outputDir string
+	split     bool
+	dryRun    bool
+	workers   int
+	chunkSize int64
+	limit     int64
+	logLevel  *slog.Level // nil = no logging
+}
+
+func parseGenerateFlags(cmd *cobra.Command) (generateOptions, error) {
+	f := cmd.Flags()
+	var o generateOptions
+	o.file, _ = f.GetString("file")
+	o.format, _ = f.GetString("output")
+	o.outputDir, _ = f.GetString("output-dir")
+	o.split, _ = f.GetBool("split-entities")
+	o.dryRun, _ = f.GetBool("dry-run")
+	o.workers, _ = f.GetInt("workers")
+	o.chunkSize, _ = f.GetInt64("chunk-size")
+	o.limit, _ = f.GetInt64("limit")
+
+	verbose, _ := f.GetBool("verbose")
+	debug, _ := f.GetBool("debug")
+	switch {
+	case debug:
+		level := slog.LevelDebug
+		o.logLevel = &level
+	case verbose:
+		level := slog.LevelInfo
+		o.logLevel = &level
+	}
+
+	if o.format != "jsonl" && o.format != "csv" {
+		return o, fmt.Errorf("unsupported output format %q (use jsonl or csv)", o.format)
+	}
+	if o.split && o.outputDir == "" {
+		return o, errors.New("--split-entities requires --output-dir")
+	}
+	if o.limit < 0 {
+		return o, errors.New("--limit must be >= 0")
+	}
+	return o, nil
 }
 
 func runGenerate(cmd *cobra.Command, args []string) error {
-	file, _ := cmd.Flags().GetString("file")
-	format, _ := cmd.Flags().GetString("output")
-	outputDir, _ := cmd.Flags().GetString("output-dir")
-	splitEntities, _ := cmd.Flags().GetBool("split-entities")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	seedOverride, _ := cmd.Flags().GetInt64("seed")
-	workers, _ := cmd.Flags().GetInt("workers")
-	chunkSize, _ := cmd.Flags().GetInt64("chunk-size")
-	verbose, _ := cmd.Flags().GetBool("verbose")
-	debug, _ := cmd.Flags().GetBool("debug")
-
 	cmd.SilenceUsage = true
-	cmd.SilenceErrors = true
 
-	if format != "jsonl" && format != "csv" {
-		exitWithError(fmt.Sprintf("unsupported output format %q (use jsonl or csv)", format), exitValidation)
-	}
-
-	if splitEntities && outputDir == "" {
-		exitWithError("--split-entities requires --output-dir", exitValidation)
-	}
-
-	p, err := plan.LoadFile(file)
+	o, err := parseGenerateFlags(cmd)
 	if err != nil {
-		exitWithError(err.Error(), exitValidation)
+		return withCode(exitValidation, err)
 	}
 
+	p, err := plan.LoadFile(o.file)
+	if err != nil {
+		return withCode(exitValidation, err)
+	}
 	if cmd.Flags().Changed("seed") {
-		p.Seed = seedOverride
+		p.Seed, _ = cmd.Flags().GetInt64("seed")
+	}
+	if o.format == "csv" && !o.split && len(p.Entities) > 1 {
+		return withCode(exitValidation, fmt.Errorf(
+			"CSV output holds one entity per stream and this plan has %d; use --output-dir with --split-entities, or -o jsonl", len(p.Entities)))
 	}
 
-	if dryRun {
-		fmt.Fprintln(cmd.OutOrStdout(), "Plan is valid.")
+	if o.dryRun {
+		if err := runtime.Validate(p); err != nil {
+			return err
+		}
+		printSummary(cmd.OutOrStdout(), p, o.limit)
 		return nil
 	}
 
-	w, err := createWriter(format, outputDir, splitEntities)
+	out, err := newOutput(o, cmd.OutOrStdout())
 	if err != nil {
-		exitWithError(err.Error(), exitIO)
-	}
-
-	var opts []runtime.Option
-	if workers > 0 {
-		opts = append(opts, runtime.WithWorkers(workers))
-	}
-	if chunkSize > 0 {
-		opts = append(opts, runtime.WithChunkSize(chunkSize))
-	}
-	if verbose || debug {
-		level := slog.LevelInfo
-		if debug {
-			level = slog.LevelDebug
-		}
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
-		opts = append(opts, runtime.WithLogger(logger))
+		return withCode(exitIO, err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	executor := runtime.New(w, opts...)
-	if err := executor.Run(ctx, p); err != nil {
-		exitWithError(err.Error(), exitGeneration)
+	if err := runtime.New(out.writer, executorOptions(o, cmd.ErrOrStderr())...).Run(ctx, p); err != nil {
+		out.discard()
+		var invalid *plan.ValidationError
+		if errors.As(err, &invalid) || errors.Is(err, context.Canceled) || errors.Is(err, runtime.ErrWrite) {
+			return err
+		}
+		return withCode(exitGeneration, err)
 	}
 
+	if err := out.commit(); err != nil {
+		return withCode(exitIO, err)
+	}
 	return nil
 }
 
-func createWriter(format, outputDir string, split bool) (writer.Writer, error) {
-	if outputDir != "" {
-		if err := os.MkdirAll(outputDir, 0755); err != nil {
-			return nil, fmt.Errorf("create output directory: %w", err)
+func executorOptions(o generateOptions, logOut io.Writer) []runtime.Option {
+	var opts []runtime.Option
+	if o.workers > 0 {
+		opts = append(opts, runtime.WithWorkers(o.workers))
+	}
+	if o.chunkSize > 0 {
+		opts = append(opts, runtime.WithChunkSize(o.chunkSize))
+	}
+	if o.limit > 0 {
+		opts = append(opts, runtime.WithRowLimit(o.limit))
+	}
+	if o.logLevel != nil {
+		logger := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: *o.logLevel}))
+		opts = append(opts, runtime.WithLogger(logger))
+	}
+	return opts
+}
+
+// printSummary renders the dry-run preview: rows (exact, or min-max with
+// the expected count for driven_by) and columns per entity.
+func printSummary(w io.Writer, p *plan.Plan, limit int64) {
+	fmt.Fprintln(w, "Plan is valid.")
+	fmt.Fprintln(w)
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ENTITY\tROWS\tCOLUMNS")
+	for _, s := range plan.Summarize(p) {
+		rows := s.Rows
+		if limit > 0 {
+			rows.Min, rows.Max = min(rows.Min, limit), min(rows.Max, limit)
+			rows.Expected = min(rows.Expected, float64(limit))
+		}
+		count := fmt.Sprint(rows.Min)
+		if rows.Max != rows.Min {
+			count = fmt.Sprintf("%d-%d (~%.0f)", rows.Min, rows.Max, rows.Expected)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", s.Name, count, strings.Join(s.Columns, ", "))
+	}
+	tw.Flush()
+}
+
+// output is where generated records go. Files are written to a staging
+// directory inside --output-dir and moved into place only on success, so a
+// failed run never leaves partial files.
+type output struct {
+	writer  writer.Writer
+	staging string // "" when writing to stdout
+	dest    string
+}
+
+func newOutput(o generateOptions, stdout io.Writer) (*output, error) {
+	if o.outputDir == "" {
+		if o.format == "csv" {
+			return &output{writer: writer.NewCSVWriterFromWriter(stdout)}, nil
+		}
+		return &output{writer: writer.NewJSONLWriterFromWriter(stdout)}, nil
+	}
+
+	if err := os.MkdirAll(o.outputDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create output directory: %w", err)
+	}
+	staging, err := os.MkdirTemp(o.outputDir, ".apery-staging-")
+	if err != nil {
+		return nil, fmt.Errorf("create staging directory: %w", err)
+	}
+	out := &output{staging: staging, dest: o.outputDir}
+
+	if o.split {
+		out.writer = writer.NewSplitWriter(staging, o.format)
+		return out, nil
+	}
+
+	path := filepath.Join(staging, "output."+o.format)
+	if o.format == "csv" {
+		out.writer, err = writer.NewCSVWriter(path)
+	} else {
+		out.writer, err = writer.NewJSONLWriter(path)
+	}
+	if err != nil {
+		out.discard()
+		return nil, err
+	}
+	return out, nil
+}
+
+// commit moves staged files into the output directory.
+func (o *output) commit() error {
+	if o.staging == "" {
+		return nil
+	}
+	defer os.RemoveAll(o.staging)
+
+	entries, err := os.ReadDir(o.staging)
+	if err != nil {
+		return fmt.Errorf("read staging directory: %w", err)
+	}
+	for _, e := range entries {
+		if err := os.Rename(filepath.Join(o.staging, e.Name()), filepath.Join(o.dest, e.Name())); err != nil {
+			return fmt.Errorf("move %s into place: %w", e.Name(), err)
 		}
 	}
+	return nil
+}
 
-	if split {
-		return writer.NewSplitWriter(outputDir, format), nil
+// discard removes staged files after a failed run.
+func (o *output) discard() {
+	if o.staging != "" {
+		os.RemoveAll(o.staging)
 	}
-
-	if outputDir != "" {
-		path := filepath.Join(outputDir, "output."+format)
-		switch format {
-		case "jsonl":
-			return writer.NewJSONLWriter(path)
-		case "csv":
-			return writer.NewCSVWriter(path)
-		}
-	}
-
-	switch format {
-	case "jsonl":
-		return writer.NewJSONLWriterFromWriter(os.Stdout), nil
-	case "csv":
-		return writer.NewCSVWriterFromWriter(os.Stdout), nil
-	}
-
-	return nil, fmt.Errorf("unsupported format %q", format)
 }

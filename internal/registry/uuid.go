@@ -8,7 +8,6 @@ import (
 
 const (
 	uuidByteLength = 16
-	byteMax        = 256
 
 	// Byte positions for UUID version and variant
 	versionByteIndex = 6
@@ -27,9 +26,7 @@ type UUIDGenerator struct{}
 // Next returns the next generated UUID string.
 func (u *UUIDGenerator) Next(r *rng.Rng) (any, error) {
 	var bytes [uuidByteLength]byte
-	for i := range uuidByteLength {
-		bytes[i] = byte(r.Intn(byteMax))
-	}
+	r.Read(bytes[:])
 
 	// Set version 4 and RFC 4122 variant
 	bytes[versionByteIndex] = (bytes[versionByteIndex] & versionMask) | version4

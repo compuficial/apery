@@ -1,9 +1,11 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
 	"time"
+	_ "time/tzdata" // same zone rules on every host, including Windows
+
+	"github.com/compuficial/apery/internal/rng"
 )
 
 const (
@@ -37,18 +39,18 @@ func (t *TimeGenerator) Next(r *rng.Rng) (any, error) {
 
 // validateTimeConfig validates and parses config for time generator.
 func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *time.Location, error) {
-	tzStr := defaultTimezone
-	if tz, ok := config["tz"].(string); ok {
-		tzStr = tz
+	tzStr, err := optionalString(config, "tz", defaultTimezone)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", nil, err
 	}
 	loc, err := time.LoadLocation(tzStr)
 	if err != nil {
 		return time.Time{}, time.Time{}, "", nil, fmt.Errorf("time: invalid timezone %q: %w", tzStr, err)
 	}
 
-	format := defaultTimeFormat
-	if f, ok := config["format"].(string); ok {
-		format = f
+	format, err := optionalString(config, "format", defaultTimeFormat)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", nil, err
 	}
 
 	// Parse default start/end times using the default format (RFC3339)
@@ -56,12 +58,12 @@ func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *t
 	defaultStart, _ := time.Parse(time.RFC3339, defaultStartTime)
 	defaultEnd, _ := time.Parse(time.RFC3339, defaultEndTime)
 
-	start, err := parseTimeFromConfig(config, "start", defaultStart, format)
+	start, err := parseTimeFromConfig(config, "start", defaultStart, format, loc)
 	if err != nil {
 		return time.Time{}, time.Time{}, "", nil, err
 	}
 
-	end, err := parseTimeFromConfig(config, "end", defaultEnd, format)
+	end, err := parseTimeFromConfig(config, "end", defaultEnd, format, loc)
 	if err != nil {
 		return time.Time{}, time.Time{}, "", nil, err
 	}
@@ -77,8 +79,22 @@ func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *t
 	return start, end, format, loc, nil
 }
 
-// parseTimeFromConfig reads and parses a time value from config.
-func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time, format string) (time.Time, error) {
+// optionalString reads an optional string key, rejecting other types.
+func optionalString(config map[string]any, key, defaultVal string) (string, error) {
+	val, exists := config[key]
+	if !exists {
+		return defaultVal, nil
+	}
+	s, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("time: '%s' must be a string, got %T", key, val)
+	}
+	return s, nil
+}
+
+// parseTimeFromConfig reads and parses a time value from config. Values
+// without an explicit offset are wall-clock times in loc.
+func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time, format string, loc *time.Location) (time.Time, error) {
 	val, exists := config[key]
 	if !exists {
 		return defaultVal, nil
@@ -89,10 +105,10 @@ func parseTimeFromConfig(config map[string]any, key string, defaultVal time.Time
 		return time.Time{}, fmt.Errorf("time: '%s' must be a string, got %T", key, val)
 	}
 
-	parsed, err := time.Parse(format, s)
+	parsed, err := time.ParseInLocation(format, s, loc)
 	if err != nil {
 		// Docs promise bare YYYY-MM-DD works without setting format
-		if fallback, fbErr := time.Parse(time.DateOnly, s); fbErr == nil {
+		if fallback, fbErr := time.ParseInLocation(time.DateOnly, s, loc); fbErr == nil {
 			return fallback, nil
 		}
 		return time.Time{}, fmt.Errorf("time: invalid '%s': %w", key, err)
@@ -113,10 +129,10 @@ func init() {
 	MustRegisterInfo("time", GeneratorInfo{
 		Description: "Random timestamp within a configurable range",
 		ConfigKeys: []ConfigKey{
-			{Name: "start", Type: "string", Desc: "Start time in RFC3339 or YYYY-MM-DD (default 2020-01-01)"},
-			{Name: "end", Type: "string", Desc: "End time in RFC3339 or YYYY-MM-DD (default 2030-12-31)"},
-			{Name: "format", Type: "string", Desc: "Go time format string (default RFC3339)"},
-			{Name: "tz", Type: "string", Desc: "Timezone name (default UTC)"},
+			{Name: "start", Type: "string", Desc: "Start time in RFC3339 or YYYY-MM-DD; no offset means wall-clock time in tz (default 2020-01-01)"},
+			{Name: "end", Type: "string", Desc: "End time in RFC3339 or YYYY-MM-DD; no offset means wall-clock time in tz (default 2030-12-31)"},
+			{Name: "format", Type: "string", Desc: "Go time format string (default RFC3339)", Default: "RFC3339"},
+			{Name: "tz", Type: "string", Desc: "IANA timezone name; zone data is embedded (default UTC)", Default: "UTC"},
 		},
 		Example: `- name: created_at
   gen: time

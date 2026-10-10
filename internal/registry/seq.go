@@ -1,8 +1,8 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 )
 
 // SeqGenerator generates sequential integers starting from 1
@@ -67,8 +67,8 @@ func init() {
 	MustRegisterInfo("seq", GeneratorInfo{
 		Description: "Sequential integers with configurable start and step",
 		ConfigKeys: []ConfigKey{
-			{Name: "start", Type: "int", Desc: "Starting value (default 1)"},
-			{Name: "step", Type: "int", Desc: "Increment per row (default 1)"},
+			{Name: "start", Type: "int", Desc: "Starting value (default 1)", Default: "1"},
+			{Name: "step", Type: "int", Desc: "Increment per row, nonzero (default 1)", Default: "1"},
 		},
 		Example: `- name: id
   gen: seq

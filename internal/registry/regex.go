@@ -1,8 +1,8 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 	"regexp/syntax"
 	"strings"
 )
@@ -190,14 +190,14 @@ func validateRegexConfig(config map[string]any) (*syntax.Regexp, int, error) {
 	// Validate max_repeat - optional, must be int
 	maxRepeat := defaultMaxRepeat
 	if val, exists := config["max_repeat"]; exists {
-		m, ok := val.(int)
-		if !ok {
-			return nil, 0, fmt.Errorf("regex: 'max_repeat' must be an integer, got %T (use: 10, not 10.0)", val)
+		m, err := extractInt(val, "max_repeat", "regex")
+		if err != nil {
+			return nil, 0, err
 		}
 		if m < 1 {
 			return nil, 0, fmt.Errorf("regex: 'max_repeat' must be >= 1, got %d", m)
 		}
-		maxRepeat = m
+		maxRepeat = int(m)
 	}
 
 	return re, maxRepeat, nil

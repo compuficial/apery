@@ -29,7 +29,7 @@ func TestRegexGenerator_Config(t *testing.T) {
 		{Name: "invalid regex", Config: map[string]any{"pattern": "["}, ExpectError: true},
 		{Name: "invalid regex unclosed group", Config: map[string]any{"pattern": "(abc"}, ExpectError: true},
 		{Name: "invalid max_repeat type string", Config: map[string]any{"pattern": "a", "max_repeat": "5"}, ExpectError: true},
-		{Name: "invalid max_repeat type float", Config: map[string]any{"pattern": "a", "max_repeat": 5.0}, ExpectError: true},
+		{Name: "invalid max_repeat type float", Config: map[string]any{"pattern": "a", "max_repeat": 5.5}, ExpectError: true},
 		{Name: "max_repeat zero", Config: map[string]any{"pattern": "a", "max_repeat": 0}, ExpectError: true},
 		{Name: "max_repeat negative", Config: map[string]any{"pattern": "a", "max_repeat": -1}, ExpectError: true},
 		{Name: "word boundary unsupported", Config: map[string]any{"pattern": `foo\bbar`}, ExpectError: true},

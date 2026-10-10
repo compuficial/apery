@@ -1,29 +1,31 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 )
 
 // ListGenerator generates a list of items from a single sub-generator
 type ListGenerator struct {
-	minLen int64
-	maxLen int64
-	item   Generator
+	minLen  int64
+	maxLen  int64
+	item    Generator
+	scratch *rng.Rng // reseeded per draw; instances are chunk-local
 }
 
 // Next generates a slice of items using the sub-generator
 func (l *ListGenerator) Next(r *rng.Rng) (any, error) {
+	seed := r.GetSeed()
 	length := l.minLen
 	if l.maxLen > l.minLen {
-		lenSeed := rng.Derive(r.GetSeed(), "__len__")
-		length = rng.New(lenSeed).IntRange(l.minLen, l.maxLen)
+		l.scratch.Reseed(rng.Derive(seed, "__len__"))
+		length = l.scratch.IntRange(l.minLen, l.maxLen)
 	}
 
 	result := make([]any, length)
 	for i := range length {
-		childSeed := rng.DeriveIndex(r.GetSeed(), i)
-		val, err := l.item.Next(rng.New(childSeed))
+		l.scratch.Reseed(rng.DeriveIndex(seed, i))
+		val, err := l.item.Next(l.scratch)
 		if err != nil {
 			return nil, fmt.Errorf("list: item '%d': %w", i, err)
 		}
@@ -77,29 +79,13 @@ func validateListConfig(config map[string]any) (int64, int64, Generator, error) 
 		return 0, 0, nil, fmt.Errorf("list: must specify 'len' or both 'min_len' and 'max_len'")
 	}
 
-	// Extract and validate item generator spec
 	rawItem, ok := config["item"]
 	if !ok {
 		return 0, 0, nil, fmt.Errorf("list: 'item' is required")
 	}
-	spec, ok := rawItem.(map[string]any)
-	if !ok {
-		return 0, 0, nil, fmt.Errorf("list: 'item' must be a map, got %T", rawItem)
-	}
-
-	genName, ok := spec["gen"].(string)
-	if !ok || genName == "" {
-		return 0, 0, nil, fmt.Errorf("list: 'item' missing 'gen'")
-	}
-
-	genConfig, _ := spec["config"].(map[string]any)
-	if genConfig == nil {
-		genConfig = map[string]any{}
-	}
-
-	gen, err := Get(genName, genConfig)
+	gen, err := buildSubGenerator(rawItem, config, "list: item", nestPure)
 	if err != nil {
-		return 0, 0, nil, fmt.Errorf("list: item: %w", err)
+		return 0, 0, nil, err
 	}
 
 	return minLen, maxLen, gen, nil
@@ -113,7 +99,7 @@ func init() {
 			return nil, err
 		}
 
-		return &ListGenerator{minLen: minLen, maxLen: maxLen, item: item}, nil
+		return &ListGenerator{minLen: minLen, maxLen: maxLen, item: item, scratch: rng.New(0)}, nil
 	})
 	MustRegisterInfo("list", GeneratorInfo{
 		Description: "Array of items from a single generator",

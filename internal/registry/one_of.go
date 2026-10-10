@@ -1,36 +1,31 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 )
 
 // OneOfGenerator randomly selects one of several sub-generators per invocation
 type OneOfGenerator struct {
 	gens    []Generator
 	weights []float64 // nil = uniform; non-nil = precomputed CDF
+	scratch *rng.Rng  // reseeded per draw; instances are chunk-local
 }
 
 // Next picks a generator (uniformly or weighted) and returns its output
 func (o *OneOfGenerator) Next(r *rng.Rng) (any, error) {
-	selectRng := rng.New(rng.Derive(r.GetSeed(), "__select__"))
+	seed := r.GetSeed()
+	o.scratch.Reseed(rng.Derive(seed, "__select__"))
 
 	var idx int
 	if o.weights == nil {
-		idx = selectRng.Intn(len(o.gens))
+		idx = o.scratch.Intn(len(o.gens))
 	} else {
-		f := selectRng.Float64()
-		idx = len(o.gens) - 1
-		for i, threshold := range o.weights {
-			if f < threshold {
-				idx = i
-				break
-			}
-		}
+		idx = cdfIndex(o.weights, o.scratch.Float64())
 	}
 
-	valueRng := rng.New(rng.Derive(r.GetSeed(), "__value__"))
-	return o.gens[idx].Next(valueRng)
+	o.scratch.Reseed(rng.Derive(seed, "__value__"))
+	return o.gens[idx].Next(o.scratch)
 }
 
 func validateOneOfConfig(config map[string]any) ([]Generator, []float64, error) {
@@ -50,24 +45,9 @@ func validateOneOfConfig(config map[string]any) ([]Generator, []float64, error) 
 
 	gens := make([]Generator, len(genSpecs))
 	for i, raw := range genSpecs {
-		spec, ok := raw.(map[string]any)
-		if !ok {
-			return nil, nil, fmt.Errorf("one_of: generators[%d] must be a map, got %T", i, raw)
-		}
-
-		genName, ok := spec["gen"].(string)
-		if !ok || genName == "" {
-			return nil, nil, fmt.Errorf("one_of: generators[%d] missing 'gen'", i)
-		}
-
-		genConfig, _ := spec["config"].(map[string]any)
-		if genConfig == nil {
-			genConfig = map[string]any{}
-		}
-
-		gen, err := Get(genName, genConfig)
+		gen, err := buildSubGenerator(raw, config, fmt.Sprintf("one_of: generators[%d]", i), nestPure)
 		if err != nil {
-			return nil, nil, fmt.Errorf("one_of: generators[%d]: %w", i, err)
+			return nil, nil, err
 		}
 		gens[i] = gen
 	}
@@ -75,7 +55,7 @@ func validateOneOfConfig(config map[string]any) ([]Generator, []float64, error) 
 	// Handle optional weights
 	weightsVal, hasWeights := config["weights"]
 	if hasWeights {
-		cdf, err := validateOneOfWeights(weightsVal, len(gens))
+		cdf, err := buildCDF(weightsVal, len(gens), "one_of", "generators")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -85,48 +65,13 @@ func validateOneOfConfig(config map[string]any) ([]Generator, []float64, error) 
 	return gens, nil, nil
 }
 
-func validateOneOfWeights(weightsVal any, numGens int) ([]float64, error) {
-	raw, ok := weightsVal.([]any)
-	if !ok {
-		return nil, fmt.Errorf("one_of: 'weights' must be an array, got %T", weightsVal)
-	}
-	if len(raw) != numGens {
-		return nil, fmt.Errorf("one_of: 'weights' length (%d) must match 'generators' length (%d)", len(raw), numGens)
-	}
-
-	weights := make([]float64, len(raw))
-	var total float64
-	for i, w := range raw {
-		v, err := extractFloat(w, "weights", "one_of")
-		if err != nil {
-			return nil, err
-		}
-		if v <= 0 {
-			return nil, fmt.Errorf("one_of: 'weights[%d]' must be > 0, got %v", i, v)
-		}
-		weights[i] = v
-		total += v
-	}
-
-	// Build CDF
-	cdf := make([]float64, len(weights))
-	cumulative := 0.0
-	for i, w := range weights {
-		cumulative += w / total
-		cdf[i] = cumulative
-	}
-	cdf[len(cdf)-1] = 1.0
-
-	return cdf, nil
-}
-
 func init() {
 	MustRegister("one_of", func(config map[string]any) (Generator, error) {
 		gens, weights, err := validateOneOfConfig(config)
 		if err != nil {
 			return nil, err
 		}
-		return &OneOfGenerator{gens: gens, weights: weights}, nil
+		return &OneOfGenerator{gens: gens, weights: weights, scratch: rng.New(0)}, nil
 	})
 	MustRegisterInfo("one_of", GeneratorInfo{
 		Description: "Randomly dispatch to one of several generators",

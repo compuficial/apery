@@ -30,7 +30,7 @@ If not on PATH: tell the user to run `curl -fsSL https://raw.githubusercontent.c
 1. **Clarify the shape** — what entities, roughly how many rows, what fields, any relationships. Don't guess — ask if it's ambiguous.
 2. **Discover generators** — `apery list generators` for the full catalog, `apery describe generator <name>` for any specific one's config schema and example. **Always run `describe` before using a generator you haven't used recently** — config keys, defaults, and required fields are authoritative there, not in your head.
 3. **Write the plan** (see structure below). Save it somewhere sensible (e.g. `./plans/foo.yaml` in the user's repo, or `/tmp/foo.yaml` for one-off runs).
-4. **Validate first** — `apery validate -f plan.yaml`. Fix any errors before generating.
+4. **Validate first** — `apery validate -f plan.yaml -o json`. Every problem comes back at once, each with a `path`, `code`, `message`, and `hint`; fix them all and re-run until it reports `"valid": true`. `apery generate -f plan.yaml --dry-run` then shows row estimates and columns per entity.
 5. **Generate** — `apery generate -f plan.yaml` (stdout JSONL) or `--output-dir ./out --split-entities` for per-entity files.
 
 ## Plan structure
@@ -51,7 +51,8 @@ entities:
 
 - Entities are processed **in declared order** — declare upstream entities before any that reference them via `rel_ref`.
 - Every field has `name`, `gen`, and an optional `config: {...}` block whose shape depends on the generator (use `apery describe generator <name>`).
-- `seed` is required at the top level. The user can override it at run time with `--seed`.
+- Set `seed` explicitly at the top level (it defaults to 0 when omitted). The user can override it at run time with `--seed`.
+- Plans are strict: every key must be one the schema or the generator declares. A typo fails validation with a "did you mean" suggestion.
 
 ### Relational data
 
@@ -120,7 +121,7 @@ Field order matters: `expr`/`date_offset` can only reference fields declared **b
 # Generate JSONL to stdout (pipe-friendly)
 apery generate -f plan.yaml
 
-# CSV
+# CSV (one entity per stream: multi-entity plans need --output-dir ./out --split-entities)
 apery generate -f plan.yaml -o csv
 
 # Write to directory (single output.jsonl)
@@ -130,30 +131,34 @@ apery generate -f plan.yaml --output-dir ./out
 apery generate -f plan.yaml --output-dir ./out --split-entities
 
 # Validate only
-apery validate -f plan.yaml
-apery generate -f plan.yaml --dry-run
+apery validate -f plan.yaml -o json            # all issues, machine-readable
+apery generate -f plan.yaml --dry-run          # + row estimates and columns
+
+# Quick sample: at most N rows per entity
+apery generate -f plan.yaml --limit 5
 
 # Override seed / tune parallelism
-apery generate -f plan.yaml --seed 123 --workers 16 --chunk-size 100000
+apery generate -f plan.yaml --seed 123 --workers 8   # defaults use every core; fewer workers use less memory
 
 # Progress on stderr
 apery generate -f plan.yaml --verbose          # entity-level
 apery generate -f plan.yaml --debug            # + seeds, chunks, layout
 
 # Discovery
-apery list generators
-apery describe generator <name>
+apery list generators                          # -o json for full metadata
+apery describe generator <name>                # -o json for machine-readable
+apery describe plan-schema                     # JSON Schema for plan files
 ```
 
-Exit codes: `0` success, `1` validation/plan error, `2` generation error, `3` I/O error.
+Exit codes: `0` success, `1` validation/plan error, `2` generation error, `3` I/O error, `130` interrupted. With `--output-dir`, files appear only when the run succeeds.
 
 ## Pitfalls to avoid
 
 - **Don't fabricate generator names or config keys.** Run `apery describe generator <name>` to confirm the schema before writing the field. The catalog is the source of truth, not your memory.
 - **Declaration order matters for `rel_ref` / `driven_by`** — the referenced entity must appear earlier in the `entities` list. Validation will reject out-of-order references, but it's faster to write them right the first time.
 - **Don't add `count:` to a `driven_by` entity** — they're mutually exclusive. The child count comes from `min`/`max`.
-- **`rel_ref` with `unique: true` on a standalone (non-`driven_by`) entity forces single-threaded execution.** Fine for small data; flag it to the user if they're generating millions of rows.
-- **Composite generators** (`object`, `list`, `sample`, `switch`, `one_of`, `template`) nest sub-generators under `config`. Run `apery describe generator object` for the exact shape — it's `config.fields.<name>.gen` / `config.fields.<name>.config`, not a flat list.
+- **`rel_ref` with `unique: true` on a standalone (non-`driven_by`) entity runs that entity on a single worker** (the whole entity is one uniqueness batch). Fine for small data; flag it to the user if they're generating millions of rows.
+- **Composite generators** (`object`, `list`, `one_of`, `switch`) nest sub-generators under `config`. Run `apery describe generator object` for the exact shape — it's `config.fields.<name>.gen` / `config.fields.<name>.config`, not a flat list. Nest only pure value generators; keep `seq`, `rel_ref`, and row-aware generators (`template`, `expr`, `date_offset`) as top-level fields. `switch` cases may be row-aware.
 - **Output goes to stdout by default.** If the user expects a file, use `--output-dir`. Don't redirect with `>` and then forget that `--verbose` writes to stderr separately.
 - **Determinism is the headline feature.** If the user wants different output, they need a different `seed`, not a different run. Surface this when they ask "why is it the same every time?"
 

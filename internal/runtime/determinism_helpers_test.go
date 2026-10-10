@@ -44,6 +44,9 @@ var scalarPlan = plan.Plan{
 				"mu": 37.0, "sigma": 0.5,
 			}},
 			{Name: "rank", Gen: "zipf", Config: map[string]any{"s": 1.5, "v": 1, "imax": 100}},
+			{Name: "local_ts", Gen: "time", Config: map[string]any{
+				"start": "2024-01-01", "end": "2024-12-31", "tz": "America/New_York",
+			}},
 		}},
 	},
 }
@@ -137,6 +140,20 @@ var relationalPlan = plan.Plan{
 				"entity": "Product", "field": "id",
 			}},
 			{Name: "rating", Gen: "int", Config: map[string]any{"min": 1, "max": 5}},
+		}},
+		// Unique draws: one batch per standalone entity, one per parent for
+		// driven_by. Both must be independent of chunk size and workers.
+		{Name: "Featured", Count: 50, Fields: []plan.FieldSpec{
+			{Name: "product_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Product", "field": "id", "unique": true,
+			}},
+		}},
+		{Name: "Tagging", DrivenBy: &plan.DrivenBy{
+			Entity: "Customer", Field: "id", As: "customer_id", Min: 1, Max: 4,
+		}, Fields: []plan.FieldSpec{
+			{Name: "product_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Product", "field": "id", "unique": true, "distribution": "zipf",
+			}},
 		}},
 	},
 }

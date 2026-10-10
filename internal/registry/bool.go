@@ -1,8 +1,8 @@
 package registry
 
 import (
-	"github.com/compuficial/apery/internal/rng"
 	"fmt"
+	"github.com/compuficial/apery/internal/rng"
 )
 
 // BoolGenerator generates boolean values with configurable probability
@@ -12,7 +12,7 @@ type BoolGenerator struct {
 
 // Next returns true with probability p, false otherwise
 func (b *BoolGenerator) Next(r *rng.Rng) (any, error) {
-	return r.Float64() <= b.probability, nil
+	return r.Float64() < b.probability, nil
 }
 
 // validateBoolConfig validates and parses config for bool generator
