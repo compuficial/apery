@@ -40,6 +40,9 @@ type compiledEntity struct {
 	// (Sequential). The entity then runs in order on one worker with one set
 	// of instances.
 	isSequential bool
+	// dateLayouts maps its columns known to hold dates to their Go layouts,
+	// so compiling it and its driven_by children can check date parsing.
+	dateLayouts map[string]string
 }
 
 // Validate checks a plan's structure and builds every generator once, so
@@ -71,7 +74,7 @@ func compile(p *plan.Plan, env *registry.Env) ([]compiledEntity, error) {
 
 	entities := make([]compiledEntity, len(p.Entities))
 	for i := range p.Entities {
-		ent, entityIssues := compileEntity(&p.Entities[i], i, env)
+		ent, entityIssues := compileEntity(&p.Entities[i], i, env, entities[:i])
 		entities[i] = ent
 		issues = append(issues, entityIssues...)
 	}
@@ -82,16 +85,24 @@ func compile(p *plan.Plan, env *registry.Env) ([]compiledEntity, error) {
 	return entities, nil
 }
 
-func compileEntity(e *plan.EntitySpec, index int, env *registry.Env) (compiledEntity, []plan.Issue) {
-	ent := compiledEntity{spec: e, index: index}
+func compileEntity(e *plan.EntitySpec, index int, env *registry.Env, earlier []compiledEntity) (compiledEntity, []plan.Issue) {
+	ent := compiledEntity{spec: e, index: index, dateLayouts: map[string]string{}}
 	var issues []plan.Issue
 
-	// driven_by injects these columns before any field runs.
+	// driven_by injects these columns, with the parent's date layouts,
+	// before any field runs.
 	known := map[string]bool{}
 	if db := e.DrivenBy; db != nil {
-		known[db.As] = true
+		parentLayouts := dateLayoutsOf(earlier, db.Entity)
+		inject := func(column, parentField string) {
+			known[column] = true
+			if layout, ok := parentLayouts[parentField]; ok {
+				ent.dateLayouts[column] = layout
+			}
+		}
+		inject(db.As, db.Field)
 		for _, pf := range db.Expose {
-			known[pf.ChildName()] = true
+			inject(pf.ChildName(), pf.Field)
 		}
 		if db.IndexAs != "" {
 			known[db.IndexAs] = true
@@ -101,7 +112,7 @@ func compileEntity(e *plan.EntitySpec, index int, env *registry.Env) (compiledEn
 	for i := range e.Fields {
 		f := &e.Fields[i]
 		path := fmt.Sprintf("entities[%d].fields[%d]", index, i)
-		cf, gen, issue := compileField(f, env, known)
+		cf, gen, issue := compileField(f, env, known, ent.dateLayouts)
 		known[f.Name] = true
 		if issue != nil {
 			issue.Path = path + issue.Path
@@ -112,6 +123,9 @@ func compileEntity(e *plan.EntitySpec, index int, env *registry.Env) (compiledEn
 		if gen == nil {
 			continue // structural issue already reported by plan.Validate
 		}
+		if dp, ok := gen.(registry.DateProducer); ok {
+			ent.dateLayouts[f.Name] = dp.DateLayout()
+		}
 
 		ent.isBatchScoped = ent.isBatchScoped || cf.isBatchScoped
 		ent.isSequential = ent.isSequential || cf.isSequential
@@ -120,9 +134,21 @@ func compileEntity(e *plan.EntitySpec, index int, env *registry.Env) (compiledEn
 	return ent, issues
 }
 
-// compileField builds the field's generator once to validate it. The
-// returned issue's Path is relative to the field.
-func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool) (compiledField, registry.Generator, *plan.Issue) {
+// dateLayoutsOf returns the date columns of the named entity, compiled
+// earlier, or nil when there is none.
+func dateLayoutsOf(entities []compiledEntity, name string) map[string]string {
+	for _, ent := range entities {
+		if ent.spec.Name == name {
+			return ent.dateLayouts
+		}
+	}
+	return nil
+}
+
+// compileField builds the field's generator once to validate it against the
+// columns known so far and their date layouts. The returned issue's Path is
+// relative to the field.
+func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool, dateLayouts map[string]string) (compiledField, registry.Generator, *plan.Issue) {
 	if f.Gen == "" {
 		return compiledField{}, nil, nil
 	}
@@ -157,6 +183,13 @@ func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool) (
 				return compiledField{}, nil, &plan.Issue{Path: ".config", Code: "dependency_order",
 					Message: fmt.Sprintf("field '%s' references '%s', which must be declared before it", f.Name, dep)}
 			}
+		}
+	}
+
+	if dc, ok := gen.(registry.DateConsumer); ok {
+		if err := dc.CheckDateLayouts(dateLayouts); err != nil {
+			return compiledField{}, nil, &plan.Issue{Path: ".config", Code: "date_format_mismatch",
+				Message: err.Error(), Hint: fmt.Sprintf("run 'apery describe generator %s'", f.Gen)}
 		}
 	}
 

@@ -27,6 +27,11 @@ func (t timeline) at(offset time.Duration) string {
 	return t.start.Add(offset).In(t.loc).Format(t.format)
 }
 
+// DateLayout returns the layout timestamps are written in.
+func (t timeline) DateLayout() string {
+	return t.format
+}
+
 // TimeSeqGenerator generates increasing timestamps for event streams and
 // logs: row i is start + i*step, plus up to jitter. With jitter below step
 // every timestamp is later than the one before. The value depends only on

@@ -270,6 +270,20 @@ type Sequential interface {
 	buildsOnPreviousRow()
 }
 
+// DateProducer is implemented by generators whose values are dates written
+// in one Go time layout (e.g. time, time_seq).
+type DateProducer interface {
+	DateLayout() string
+}
+
+// DateConsumer is implemented by generators that parse a column of their row
+// as a date (e.g. date_offset). Validation passes the layout of every earlier
+// column known to hold dates; an error means the column can't be parsed, so
+// the plan fails before any row is generated.
+type DateConsumer interface {
+	CheckDateLayouts(layouts map[string]string) error
+}
+
 // ColumnRef names a column of a previously generated entity.
 type ColumnRef struct {
 	Entity string

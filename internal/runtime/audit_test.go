@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -121,6 +122,51 @@ func TestValidate_GeneratorIssues(t *testing.T) {
 		got := verr.Issues[i]
 		if got.Field != w.field || got.Code != w.code || !strings.Contains(got.Hint, w.hint) {
 			t.Errorf("issue %d = %+v, want field %s code %s hint containing %q", i, got, w.field, w.code, w.hint)
+		}
+	}
+}
+
+// A date_offset whose format can't parse its base column fails validation,
+// in its own row and through driven_by expose, when the column's layout is
+// known.
+func TestValidate_DateFormatMismatch(t *testing.T) {
+	offset := func(name, base string, config map[string]any) plan.FieldSpec {
+		c := map[string]any{"base": base, "amount": 1, "unit": "months"}
+		maps.Copy(c, config)
+		return plan.FieldSpec{Name: name, Gen: "date_offset", Config: c}
+	}
+	dateOnly := map[string]any{"format": time.DateOnly}
+	p := &plan.Plan{Seed: 1, Entities: []plan.EntitySpec{
+		{Name: "Sub", Count: 3, Fields: []plan.FieldSpec{
+			{Name: "id", Gen: "seq"},
+			{Name: "start", Gen: "time", Config: dateOnly},
+			{Name: "picked", Gen: "pick", Config: map[string]any{"values": []any{"2024-01-01"}}},
+			{Name: "at", Gen: "time_seq", Config: map[string]any{"start": "2024-01-01", "step": "1h"}},
+			offset("renew", "{start}", nil),
+			offset("renew_ok", "{start}", dateOnly),
+			offset("after_renew", "{renew_ok}", nil),
+			offset("from_pick", "{picked}", nil),
+			offset("from_seq", "{at}", nil),
+		}},
+		{Name: "Invoice", DrivenBy: &plan.DrivenBy{
+			Entity: "Sub", Field: "id", As: "sub_id", Min: 1, Max: 2,
+			Expose: []plan.ParentField{{Field: "start"}},
+		}, Fields: []plan.FieldSpec{offset("billed", "{start}", nil)}},
+	}}
+
+	var verr *plan.ValidationError
+	if err := Validate(p); !errors.As(err, &verr) {
+		t.Fatalf("error %v is not a *plan.ValidationError", err)
+	}
+	want := []string{"Sub.renew", "Sub.after_renew", "Invoice.billed"}
+	if len(verr.Issues) != len(want) {
+		t.Fatalf("issues = %+v, want %v", verr.Issues, want)
+	}
+	for i, w := range want {
+		got := verr.Issues[i]
+		if got.Entity+"."+got.Field != w || got.Code != "date_format_mismatch" ||
+			!strings.Contains(got.Message, `set format: "2006-01-02"`) {
+			t.Errorf("issue %d = %+v, want %s date_format_mismatch naming the layout", i, got, w)
 		}
 	}
 }
