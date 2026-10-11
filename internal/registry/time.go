@@ -37,6 +37,11 @@ func (t *TimeGenerator) Next(r *rng.Rng) (any, error) {
 	return localTime.Format(t.format), nil
 }
 
+// DateLayout returns the layout timestamps are written in.
+func (t *TimeGenerator) DateLayout() string {
+	return t.format
+}
+
 // validateTimeConfig validates and parses config for time generator.
 func validateTimeConfig(config map[string]any) (time.Time, time.Time, string, *time.Location, error) {
 	format, loc, err := parseFormatAndZone(config, "time")

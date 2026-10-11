@@ -49,9 +49,11 @@ func (g *DateOffsetGenerator) NextWithRow(_ *rng.Rng, row RowContext) (any, erro
 		baseStr = s
 	}
 
+	// A literal base parsed at config time, so this is a field's value.
 	base, err := time.Parse(g.format, baseStr)
 	if err != nil {
-		return nil, fmt.Errorf("date_offset: cannot parse base %q with format %q: %w", baseStr, g.format, err)
+		return nil, fmt.Errorf("date_offset: cannot parse base %q with format %q; set 'format' to the layout of field %q: %w",
+			baseStr, g.format, g.baseField, err)
 	}
 
 	f, err := g.amount.eval(row)
@@ -85,6 +87,29 @@ func (g *DateOffsetGenerator) NextWithRow(_ *rng.Rng, row RowContext) (any, erro
 // Dependencies returns the row fields referenced by the base and amount.
 func (g *DateOffsetGenerator) Dependencies() []string {
 	return g.deps
+}
+
+// DateLayout returns the layout shifted dates are written in.
+func (g *DateOffsetGenerator) DateLayout() string {
+	return g.format
+}
+
+// layoutProbe has two digits in every field, so layouts that differ only in
+// padding ("1" vs "01") agree on it; those still fail per row at runtime.
+var layoutProbe = time.Date(2024, 11, 22, 13, 14, 15, 123456789, time.UTC)
+
+// CheckDateLayouts reports a base column written in a layout format can't
+// parse: a date in that layout must parse back.
+func (g *DateOffsetGenerator) CheckDateLayouts(layouts map[string]string) error {
+	written, ok := layouts[g.baseField]
+	if !ok {
+		return nil
+	}
+	if _, err := time.Parse(g.format, layoutProbe.Format(written)); err != nil {
+		return fmt.Errorf("date_offset: base field %q is written as %q, which format %q cannot parse; set format: %q",
+			g.baseField, written, g.format, written)
+	}
+	return nil
 }
 
 // scaleDuration multiplies amount by unit, erroring instead of overflowing int64.

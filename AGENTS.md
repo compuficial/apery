@@ -78,11 +78,11 @@ go test ./internal/runtime -run TestStress -v
    - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
    - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `time_seq`, `regex`, `normal_int`, `normal_float`, `lognormal`, `exponential`, `poisson`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `expr`, `date_offset`, `rel_ref`
-   - Interfaces: `Generator`, `RowAwareGenerator`, `DependencyDeclarer`, `ReadOnlyEntityStore`, `EntityStore`, `Resettable`, `Seekable`, `Sequential`, `StoreConsumer`
+   - Interfaces: `Generator`, `RowAwareGenerator`, `DependencyDeclarer`, `ReadOnlyEntityStore`, `EntityStore`, `Resettable`, `Seekable`, `Sequential`, `StoreConsumer`, `DateProducer`, `DateConsumer`
    - `Env` (passed as `_env`): per-run base dir and cache so each `file`/`url` value source loads once
 
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
-   - `compile` / `Validate`: builds every field's generator once before any row is generated; all problems come back as one `*plan.ValidationError`
+   - `compile` / `Validate`: builds every field's generator once before any row is generated, and checks each `DateConsumer` (`date_offset`) against the layouts of earlier date columns, including those `driven_by` injects; all problems come back as one `*plan.ValidationError`
    - Executes plans by iterating entities and fields
    - Creates per-field RNGs using hierarchical seed derivation
    - Chunked parallel execution with configurable worker count and chunk size
@@ -176,7 +176,7 @@ Key design rules:
 2. Implement `Generator` interface
 3. Register in `init()` function with factory
 4. Factory should validate config and return generator instance; register `GeneratorInfo` whose `ConfigKeys` list every key the factory reads (`Get` rejects the rest, and `TestGeneratorExamplesBuild` checks each `Example`)
-   - Per-row state → implement `Seekable` (e.g. `seq`, `time_seq`), `Resettable`, or, when each value builds on the row before, `Sequential`; reads other entities → implement `StoreConsumer`
+   - Per-row state → implement `Seekable` (e.g. `seq`, `time_seq`), `Resettable`, or, when each value builds on the row before, `Sequential`; reads other entities → implement `StoreConsumer`; writes dates → `DateProducer`; parses a date column → `DateConsumer`
 5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, row-aware, relational, or dependent)
 6. Regenerate golden files: `go test ./internal/runtime -run TestGolden -update -v`
 7. Review the golden file diff and commit

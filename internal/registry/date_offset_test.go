@@ -2,7 +2,10 @@ package registry
 
 import (
 	"github.com/compuficial/apery/internal/rng"
+	"maps"
+	"strings"
 	"testing"
+	"time"
 )
 
 const dateOffsetGen = "date_offset"
@@ -221,5 +224,82 @@ func TestDateOffsetGenerator_Determinism(t *testing.T) {
 		if v1 != v2 {
 			t.Errorf("determinism failed at %d: %v != %v", i, v1, v2)
 		}
+	}
+}
+
+// Generators that write dates report the layout they write.
+func TestDateProducers_Layout(t *testing.T) {
+	tests := []struct {
+		gen    string
+		config map[string]any
+		want   string
+	}{
+		{"time", map[string]any{}, time.RFC3339},
+		{"time", map[string]any{"format": time.DateOnly}, time.DateOnly},
+		{"time_seq", map[string]any{"start": "2024-01-01", "step": "1h", "format": time.DateTime}, time.DateTime},
+		{"time_seq", map[string]any{"start": "2024-01-01", "step": "1h", "gaps": "exponential"}, time.RFC3339},
+		{dateOffsetGen, map[string]any{"base": "{d}", "amount": 1, "unit": "days", "format": time.DateOnly}, time.DateOnly},
+	}
+	for _, tt := range tests {
+		gen, err := Get(tt.gen, tt.config)
+		if err != nil {
+			t.Fatalf("%s: %v", tt.gen, err)
+		}
+		dp, ok := gen.(DateProducer)
+		if !ok {
+			t.Fatalf("%s (%T) is not a DateProducer", tt.gen, gen)
+		}
+		if got := dp.DateLayout(); got != tt.want {
+			t.Errorf("%s %v: layout %q, want %q", tt.gen, tt.config, got, tt.want)
+		}
+	}
+}
+
+// A base column written in a layout that format can't parse is an error
+// that names the layout to set.
+func TestDateOffsetGenerator_CheckDateLayouts(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  map[string]any
+		layouts map[string]string
+		wantErr string
+	}{
+		{"same layout", map[string]any{"format": time.DateOnly}, map[string]string{"d": time.DateOnly}, ""},
+		{"nano parses with RFC3339", map[string]any{}, map[string]string{"d": time.RFC3339Nano}, ""},
+		{"RFC3339 parses with nano", map[string]any{"format": time.RFC3339Nano}, map[string]string{"d": time.RFC3339}, ""},
+		{"base not a known date", map[string]any{}, map[string]string{"other": time.DateOnly}, ""},
+		{"date only under RFC3339", map[string]any{}, map[string]string{"d": time.DateOnly}, `set format: "2006-01-02"`},
+		{"RFC3339 under date only", map[string]any{"format": time.DateOnly}, map[string]string{"d": time.RFC3339}, `set format: "2006-01-02T15:04:05Z07:00"`},
+		{"literal base", map[string]any{"base": "2024-01-01T00:00:00Z"}, map[string]string{"d": time.DateOnly}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := map[string]any{"base": "{d}", "amount": 1, "unit": "days"}
+			maps.Copy(config, tt.config)
+			gen, err := Get(dateOffsetGen, config)
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+			err = gen.(DateConsumer).CheckDateLayouts(tt.layouts)
+			switch {
+			case tt.wantErr == "" && err != nil:
+				t.Errorf("unexpected error: %v", err)
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+				t.Errorf("error %v, want one containing %s", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// A base value format can't parse names the format key and the field.
+func TestDateOffsetGenerator_BaseMismatchHint(t *testing.T) {
+	gen, err := Get(dateOffsetGen, map[string]any{"base": "{start}", "amount": 1, "unit": "days"})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	_, err = gen.(RowAwareGenerator).NextWithRow(rng.New(rng.SeedFromInt64(testSeed)),
+		&testRowContext{data: map[string]any{"start": "2024-09-27"}})
+	if err == nil || !strings.Contains(err.Error(), `set 'format' to the layout of field "start"`) {
+		t.Fatalf("error %v, want a hint to set 'format' to the layout of field \"start\"", err)
 	}
 }

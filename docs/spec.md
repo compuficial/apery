@@ -179,6 +179,7 @@ Problems are returned as a `*plan.ValidationError` holding `Issue`s. Each issue 
 - The generator exists (`unknown_generator`, with a "did you mean" hint).
 - Every config key is declared in the generator's `GeneratorInfo` (`unknown_config_key`), and the factory accepts the config (`invalid_config`). Optional keys with the wrong type are errors, never silently ignored.
 - Row-aware generators only reference fields declared earlier, or injected by `driven_by` (`dependency_order`).
+- `date_offset`'s `format` parses the column its `base` reads, when that column's layout is known: a `time`, `time_seq`, or `date_offset` field in the same row, or one `driven_by` injects from such a parent field (`date_format_mismatch`; the message names the layout to set). Other string columns are parsed per row.
 - Composites (`object`, `list`, `one_of`, `switch`) may not contain stateful generators (`seq`, `time_seq`, `unique` `rel_ref`) or generators that read other entities (`rel_ref`): composites build their children per chunk without seeking or binding them, so the output would depend on chunk size. `object`, `list`, and `one_of` also reject row-aware children (`template`, `expr`, `date_offset`, `switch`); `switch` cases may be row-aware because `switch` passes the row through.
 
 **Relational**
@@ -495,12 +496,21 @@ type StoreConsumer interface {
     StoreRefs() []ColumnRef // columns of earlier entities this generator reads
     BindStore(store ReadOnlyEntityStore) error
 }
+
+type DateProducer interface {
+    DateLayout() string // the Go layout its dates are written in
+}
+
+type DateConsumer interface {
+    CheckDateLayouts(layouts map[string]string) error // date column -> layout
+}
 ```
 
 - `RowAwareGenerator` — `template`, `switch`, `expr`, `date_offset`. The executor calls `NextWithRow` when this interface is satisfied, giving access to already-generated fields in the current row.
 - `DependencyDeclarer` — `template`, `switch`, `expr`, `date_offset`. Declared dependencies are validated to appear earlier in the field list.
 - `Resettable` — `rel_ref` (when `unique: true`). Reset at parent-batch boundaries inside driven_by entities; a standalone entity is one batch.
 - `Sequential` — `time_seq` (when `gaps: exponential`). The entity runs in order on one worker with one set of instances (§7.3).
+- `DateProducer` — `time`, `time_seq`, `date_offset`; `DateConsumer` — `date_offset`. Validation passes each consumer the layouts of the date columns before it, in its own row and injected by `driven_by` (§4.3).
 
 `seq` and `time_seq` implement `Seekable` (positioned at each chunk's first row), and `rel_ref` implements `StoreConsumer` (bound to the cross-entity store per chunk). Generators implementing `Seekable`, `Resettable`, `Sequential`, or `StoreConsumer` must be top-level fields (§4.3).
 
