@@ -16,6 +16,14 @@ import (
 // result is then null rather than an error, as in SQL.
 var errNullOperand = errors.New("expr: null operand")
 
+// exprFuncs are the functions an expression can call, each on one number.
+// round rounds halves away from zero, like SQL's ROUND.
+var exprFuncs = map[string]func(float64) float64{
+	"round": math.Round,
+	"floor": math.Floor,
+	"ceil":  math.Ceil,
+}
+
 // ExprGenerator evaluates an arithmetic expression over {field} references in the current row.
 type ExprGenerator struct {
 	expr compiledExpr
@@ -92,6 +100,12 @@ func evalNode(e ast.Expr, fields map[string]string, row RowContext) (float64, er
 			return 0, err
 		}
 		return applyOp(n.Op, l, r)
+	case *ast.CallExpr:
+		v, err := evalNode(n.Args[0], fields, row)
+		if err != nil {
+			return 0, err
+		}
+		return exprFuncs[n.Fun.(*ast.Ident).Name](v), nil
 	case *ast.BasicLit:
 		return strconv.ParseFloat(n.Value, 64)
 	case *ast.Ident:
@@ -189,6 +203,12 @@ func checkSupported(root ast.Expr, fields map[string]string) error {
 			default:
 				bad = fmt.Errorf("expr: unsupported operator %q", x.Op)
 			}
+		case *ast.CallExpr:
+			// Check the argument here: the function's name is not a field.
+			if bad = checkCall(x); bad == nil {
+				bad = checkSupported(x.Args[0], fields)
+			}
+			return false
 		case *ast.BasicLit:
 			if x.Kind != token.INT && x.Kind != token.FLOAT {
 				bad = fmt.Errorf("expr: unsupported literal %s", x.Value)
@@ -203,6 +223,18 @@ func checkSupported(root ast.Expr, fields map[string]string) error {
 		return bad == nil
 	})
 	return bad
+}
+
+// checkCall accepts a call to one of exprFuncs with a single argument.
+func checkCall(call *ast.CallExpr) error {
+	fn, ok := call.Fun.(*ast.Ident)
+	if !ok || exprFuncs[fn.Name] == nil {
+		return errors.New("expr: only round, floor, and ceil can be called")
+	}
+	if len(call.Args) != 1 || call.Ellipsis.IsValid() {
+		return fmt.Errorf("expr: %s takes one argument", fn.Name)
+	}
+	return nil
 }
 
 // numericResult emits a whole number as int64, anything else as float64.
@@ -242,9 +274,9 @@ func init() {
 		return &ExprGenerator{expr: expr}, nil
 	})
 	MustRegisterInfo("expr", GeneratorInfo{
-		Description: "Arithmetic over {field} references and numbers (+ - * /, parentheses)",
+		Description: "Arithmetic over {field} references and numbers (+ - * /, parentheses, round, floor, ceil)",
 		ConfigKeys: []ConfigKey{
-			{Name: "expr", Type: "string", Required: true, Desc: "Expression, e.g. \"{total} / 12\" or \"{amount} * {fx_rate}\""},
+			{Name: "expr", Type: "string", Required: true, Desc: "Expression, e.g. \"{amount} * {fx_rate}\" or \"round({total} / 12)\" (round halves away from zero)"},
 		},
 		Example: `- name: amount
   gen: expr

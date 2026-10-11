@@ -112,6 +112,12 @@ func TestDateOffsetGenerator_Output(t *testing.T) {
 			want:   "2024-07-01",
 		},
 		{
+			name:   "floor makes a whole amount",
+			config: map[string]any{"base": "2024-01-01", "amount": "floor({i} / 3) * 3", "unit": "months", "format": "2006-01-02"},
+			row:    map[string]any{"i": int64(5)}, // event 5 falls in quarter 1 -> month 3
+			want:   "2024-04-01",
+		},
+		{
 			name:   "negative offset",
 			config: map[string]any{"base": "{d}", "amount": "-2", "unit": "days", "format": "2006-01-02"},
 			row:    map[string]any{"d": "2024-03-01"},
