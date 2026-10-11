@@ -157,7 +157,7 @@ Composite generators (`object`, `list`, `one_of`, `switch`) build children at fa
 
 **`DrivenBy`** configures 1:M parent-driven child row generation. When set on `EntitySpec`, the executor generates Min to Max children per parent row instead of using Count. The parent field value is auto-injected into each child row under `DrivenBy.As`. Optionally, `DrivenBy.Expose` (`[]ParentField`) injects additional parent columns and `DrivenBy.IndexAs` injects the child's 0-based position within its parent batch — all as ordinary row columns that row-aware generators can read. Injection order: `As`, then `Expose` (declared order), then `IndexAs`.
 
-**Cross-row dependent values** (`expr`, `date_offset`) are row-aware generators that compute a field from sibling/exposed/index columns: `expr` does arithmetic over `{field}` refs and numeric literals (`+ - * /`, parens; emits `int64` when whole, else `float64`); `date_offset` shifts a base date (literal or `{field}`) by an amount in years/months/days/hours/minutes/seconds, where the amount is an `expr`-style expression string (e.g. `"{event_index}"`, `"{q} * 3"`) — it reuses the `expr` engine (`compileExpr`) rather than reimplementing field arithmetic — or a bare number (`amount: 1`) accepted as a convenience for a constant offset. Both are pure functions of row values (ignore the RNG), so output stays chunk- and worker-independent.
+**Cross-row dependent values** (`expr`, `date_offset`) are row-aware generators that compute a field from sibling/exposed/index columns: `expr` does arithmetic over `{field}` refs and numeric literals (`+ - * /`, parens, `round`/`floor`/`ceil`; emits `int64` when whole, else `float64`); `date_offset` shifts a base date (literal or `{field}`) by an amount in years/months/days/hours/minutes/seconds, where the amount is an `expr`-style expression string (e.g. `"{event_index}"`, `"{q} * 3"`) — it reuses the `expr` engine (`compileExpr`) rather than reimplementing field arithmetic — or a bare number (`amount: 1`) accepted as a convenience for a constant offset. Both are pure functions of row values (ignore the RNG), so output stays chunk- and worker-independent.
 
 **M:N relationships** are composed from `driven_by` (1:M from left entity) + `rel_ref` with `unique: true` (M:1 to right entity) on a junction entity.
 
@@ -200,7 +200,7 @@ The registry is global and thread-safe via init-time registration.
 - `internal/registry/composite.go`: Shared child builder and nesting rules for composites
 - `internal/registry/value_source.go`: `values`/`file`/`url` loading for `pick` and `sample`
 - `internal/registry/env.go`: Per-run `Env` (base dir, source cache)
-- `internal/registry/expr.go`: Row-aware arithmetic generator (`{field}` refs + literals, `+ - * /`)
+- `internal/registry/expr.go`: Row-aware arithmetic generator (`{field}` refs + literals, `+ - * /`, `round`/`floor`/`ceil`)
 - `internal/registry/date_offset.go`: Row-aware temporal offset generator (date ± N units)
 - `internal/runtime/executor.go`: Execution orchestrator with slog-based structured logging
 - `internal/runtime/compile.go`: `Validate` and the compile step (build every generator once)

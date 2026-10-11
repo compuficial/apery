@@ -27,7 +27,8 @@ entities:
           max: 240000
 
   # A yearly subscription's revenue released across 12 monthly recognition
-  # events: recognized_at = start_date + event_index months, amount = total / 12.
+  # events: recognized_at = start_date + event_index months, amount = total / 12
+  # in whole cents.
   - name: Recognition
     driven_by:
       entity: Subscription
@@ -47,10 +48,12 @@ entities:
           amount: "{event_index}"
           unit: months
           format: "2006-01-02"
+      # Each event takes the running total through itself, rounded down, minus
+      # what earlier events took, so the 12 amounts add up to exactly the total.
       - name: amount_cents
         gen: expr
         config:
-          expr: "{sub_total} / 12"
+          expr: "floor({sub_total} * ({event_index} + 1) / 12) - floor({sub_total} * {event_index} / 12)"
 
   # A charge, and a refund issued one month later after the FX rate has moved:
   # refunded_at = charged_at + 1 month, amount_eur = amount_usd * fx_rate.

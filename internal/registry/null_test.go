@@ -35,6 +35,7 @@ func TestRowAwareNullInputs(t *testing.T) {
 	}{
 		{"expr null operand", "expr", map[string]any{"expr": "{a} + {b}"}, map[string]any{"a": int64(1), "b": nil}, nil},
 		{"expr null before division by zero", "expr", map[string]any{"expr": "({a} * 2) / {b}"}, map[string]any{"a": nil, "b": int64(0)}, nil},
+		{"expr null function argument", "expr", map[string]any{"expr": "round({a} / 12)"}, map[string]any{"a": nil}, nil},
 		{"expr without nulls", "expr", map[string]any{"expr": "{a} + {b}"}, map[string]any{"a": int64(1), "b": int64(2)}, int64(3)},
 		{"date_offset null base", "date_offset", map[string]any{"base": "{d}", "amount": 1, "unit": "days", "format": "2006-01-02"}, map[string]any{"d": nil}, nil},
 		{"date_offset null amount", "date_offset", map[string]any{"base": "2024-01-01", "amount": "{n}", "unit": "days", "format": "2006-01-02"}, map[string]any{"n": nil}, nil},

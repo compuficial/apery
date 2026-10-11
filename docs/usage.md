@@ -154,6 +154,8 @@ apery generate -f /tmp/events.yaml | jq -c '{at, basket_eur, think_seconds, item
 
 `time_seq` steps are Go durations (`90s`, `15m`, `24h`); `jitter` must be smaller than `step`, which keeps every timestamp later than the one before.
 
+For whole numbers, such as prices in cents, give `lognormal` `round: true`; `expr` has `round`, `floor`, and `ceil` (`round({total} / 12)`).
+
 ### 2. Composite — Users with Addresses
 
 Create `examples/composite.yaml`:
@@ -382,16 +384,16 @@ position in the parent batch (`index_as`), then compute values with `expr`
     - name: recognized_at            # start_date shifted by the event's month
       gen: date_offset
       config: { base: "{sub_start}", amount: "{event_index}", unit: months, format: "2006-01-02" }
-    - name: amount_cents             # total split evenly across 12 events
+    - name: amount_cents             # whole cents that add up to the total
       gen: expr
-      config: { expr: "{sub_total} / 12" }
+      config: { expr: "floor({sub_total} * ({event_index} + 1) / 12) - floor({sub_total} * {event_index} / 12)" }
 ```
 
 ```bash
 apery validate -f examples/subscriptions.yaml
 
 # A subscription's 12 monthly recognition events: recognized_at advances one
-# month per event, amount stays total/12.
+# month per event, and the 12 amounts add up to the total.
 apery generate -f examples/subscriptions.yaml \
   | jq -c 'select(._entity=="Recognition" and .subscription_id==1)
            | {event_index, recognized_at, amount_cents}'

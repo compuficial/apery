@@ -28,6 +28,7 @@ func TestNormalFloatGenerator_Config(t *testing.T) {
 		// invalid configs
 		{Name: "negative sigma", Config: map[string]any{"sigma": -1.0}, ExpectError: true},
 		{Name: "invalid mu type", Config: map[string]any{"mu": "10"}, ExpectError: true},
+		{Name: "round is lognormal only", Config: map[string]any{"round": true}, ExpectError: true},
 		{Name: "invalid sigma type", Config: map[string]any{"sigma": "2.5"}, ExpectError: true},
 		{Name: "invalid clamp_min type", Config: map[string]any{"clamp_min": "0"}, ExpectError: true},
 		{Name: "invalid clamp_max type", Config: map[string]any{"clamp_max": "1"}, ExpectError: true},

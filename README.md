@@ -123,7 +123,7 @@ Run `apery list generators` to see all available generators, or `apery describe 
 | `normal_int` | Gaussian integer | `mu: 50, sigma: 10` |
 | `normal_float` | Gaussian float | `mu: 0.0, sigma: 1.0` |
 | `zipf` | Zipf distribution | `s: 1.1, imax: 100` |
-| `lognormal` | Positive, long right tail (prices, durations) | `mu: 3.0, sigma: 0.5` |
+| `lognormal` | Positive, long right tail (prices, durations); `round: true` for whole numbers | `mu: 3.0, sigma: 0.5` |
 | `exponential` | Gaps between events | `mean: 300` |
 | `poisson` | Events per period (count) | `lambda: 4.5` |
 
@@ -142,7 +142,7 @@ Run `apery list generators` to see all available generators, or `apery describe 
 
 | Generator | Description |
 |-----------|-------------|
-| `expr` | Arithmetic over `{field}` refs and numbers: `"{total} / 12"`, `"{amount} * {fx_rate}"` |
+| `expr` | Arithmetic over `{field}` refs and numbers, plus `round`/`floor`/`ceil`: `"{amount} * {fx_rate}"`, `"round({total} / 12)"` |
 | `date_offset` | Shift a base date by N units: `base: "{start}", amount: "{i}", unit: months` |
 
 ### Relational

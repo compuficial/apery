@@ -52,6 +52,7 @@ var scalarPlan = plan.Plan{
 				"values": []any{"Ace", "Bee", "Cy"},
 			}, NullRate: 0.25},
 			{Name: "price", Gen: "lognormal", Config: map[string]any{"mu": 3.0, "sigma": 0.5}},
+			{Name: "price_cents", Gen: "lognormal", Config: map[string]any{"mu": 8.0, "sigma": 0.5, "round": true}},
 			{Name: "wait", Gen: "exponential", Config: map[string]any{"mean": 300.0, "clamp_max": 3600.0}},
 			{Name: "visits", Gen: "poisson", Config: map[string]any{"lambda": 3.5}},
 			{Name: "views", Gen: "poisson", Config: map[string]any{"lambda": 250.0}},
@@ -229,6 +230,7 @@ var dependentPlan = plan.Plan{
 				"base": "{sub_start}", "amount": "{event_index}", "unit": "months", "format": "2006-01-02",
 			}},
 			{Name: "amount", Gen: "expr", Config: map[string]any{"expr": "{sub_total} / 12"}},
+			{Name: "amount_cents", Gen: "expr", Config: map[string]any{"expr": "round({sub_total} / 12)"}},
 		}},
 	},
 }

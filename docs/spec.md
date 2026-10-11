@@ -217,7 +217,7 @@ Any field can set `null_rate`, the fraction of rows (0 to 1) whose value is null
 | `normal_int`   | —                  | `mu` (=0.0), `sigma` (=1.0), `clamp_min`, `clamp_max` | `int64`  | Gaussian integer with optional clamp |
 | `normal_float` | —                  | `mu` (=0.0), `sigma` (=1.0), `clamp_min`, `clamp_max` | `float64`| Gaussian float with optional clamp |
 | `zipf`         | —                  | `s` (=1.1), `v` (=1.0), `imax` (=100)   | `uint64` | Zipf-distributed integer |
-| `lognormal`    | —                  | `mu` (=0.0), `sigma` (=1.0), in log space; `clamp_min`, `clamp_max` | `float64`| Positive with a long right tail (prices, durations); median e^mu |
+| `lognormal`    | —                  | `mu` (=0.0), `sigma` (=1.0), in log space; `clamp_min`, `clamp_max`; `round` (=false) | `float64` \| `int64` | Positive with a long right tail (prices, durations); median e^mu. `round: true` emits the nearest whole number after clamping (prices in cents); a draw at or above 2^63 is an error |
 | `exponential`  | —                  | `mean` (=1.0, > 0), `clamp_max`         | `float64`| Gaps between independent events (rate = 1/mean) |
 | `poisson`      | —                  | `lambda` (=1.0, > 0, <= 1e15)           | `int64`  | Count of events per period; mean and variance are `lambda` |
 | `time_seq`     | `start`, `step` (Go duration: `"90s"`, `"24h"`) | `jitter` (duration < `step`), `format` (=RFC3339), `tz` | `string` | Increasing timestamps: row i is `start + i*step` plus up to `jitter`, so each is later than the last. Seekable (like `seq`), so chunking doesn't change it; under `driven_by` it is one timeline across all children. Rows times step must stay within about 292 years |
@@ -250,12 +250,12 @@ Composites can nest each other freely, but not stateful or entity-reading genera
 
 | Generator | Required | Optional | Output | Description |
 |-----------|----------|----------|--------|-------------|
-| `expr`        | `expr` (string) | — | `int64` \| `float64` | Arithmetic over `{field}` refs and numeric literals: `+ - * /`, parentheses, unary minus |
+| `expr`        | `expr` (string) | — | `int64` \| `float64` | Arithmetic over `{field}` refs and numeric literals: `+ - * /`, parentheses, unary minus, `round`, `floor`, `ceil` |
 | `date_offset` | `base`, `amount`, `unit` | `format` (Go layout, default RFC3339) | `string` | Shift a base date by N `years`\|`months`\|`days`\|`hours`\|`minutes`\|`seconds` |
 
 These close the cross-row arithmetic/temporal gap (see §6.4). Both are **row-aware** and declare dependencies.
 
-- `expr` reads numeric fields and emits an `int64` when the result is a whole number, otherwise a `float64`. Referencing a missing or non-numeric field, or dividing by zero, is a row-time error. Example: `expr: "{sub_total} / 12"`.
+- `expr` reads numeric fields and emits an `int64` when the result is a whole number, otherwise a `float64`. Referencing a missing or non-numeric field, or dividing by zero, is a row-time error. Example: `expr: "{sub_total} / 12"`. `round(x)` (halves away from zero, like SQL), `floor(x)`, and `ceil(x)` give whole numbers: `round({sub_total} / 12)` is whole cents, and `floor({total} * ({i} + 1) / 12) - floor({total} * {i} / 12)` splits a total into 12 whole amounts that add up to it exactly. Inside `date_offset`, `floor` turns an index into a whole amount (`floor({i} / 3) * 3` months for quarters).
 - `date_offset` takes a `base` (a date literal or a `{field}` reference) and an `amount` and shifts it by `unit`. The `amount` is an `expr`-style expression string — a field (`"{event_index}"`) or arithmetic (`"{quarter} * 3"`, `"-2"`) — so `date_offset` composes the `expr` engine rather than reimplementing field arithmetic. A bare number is also accepted as a convenience for a constant offset (`amount: 1`), the same way the numeric generators accept `1` for `1.0`. Calendar units (`years`/`months`/`days`) use `time.AddDate` and normalize overflow the Go way (e.g. Jan 31 + 1 month → Mar 3); clock units add a fixed, overflow-checked duration. The same `format` is used to parse `base` and to render the result. Example: `base: "{sub_start}", amount: "{event_index}", unit: months`.
 
 ### 5.4 Relational

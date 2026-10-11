@@ -51,7 +51,7 @@ entities:
 
 - Entities are processed **in declared order** — declare upstream entities before any that reference them via `rel_ref`.
 - Every field has `name`, `gen`, and an optional `config: {...}` block whose shape depends on the generator (use `apery describe generator <name>`).
-- Pick the distribution that matches the quantity: `lognormal` for prices, incomes, and durations (positive, long right tail; `mu`/`sigma` are in log space, so the median is e^mu), `exponential` for gaps between events (`mean`), `poisson` for counts per period (`lambda`), `normal_float`/`normal_int` for symmetric measurements, `zipf` for popularity skew. Uniform `int`/`float` rarely looks real.
+- Pick the distribution that matches the quantity: `lognormal` for prices, incomes, and durations (positive, long right tail; `mu`/`sigma` are in log space, so the median is e^mu; `round: true` for whole numbers such as cents), `exponential` for gaps between events (`mean`), `poisson` for counts per period (`lambda`), `normal_float`/`normal_int` for symmetric measurements, `zipf` for popularity skew. Uniform `int`/`float` rarely looks real.
 - For event streams and logs, use `time_seq` (`start`, `step: 90s`, optional `jitter` below `step`): timestamps increase row by row, which `time` (random within a range) doesn't do. Per-parent timelines (each user's events starting at their signup) are `date_offset` over `{signup}` with `driven_by`'s `index_as`.
 - For missing data, add `null_rate: 0.2` to a field (any generator). Nulls render as `null` in JSONL and an empty cell in CSV; `expr`/`date_offset` over a null give null, `template` renders it as empty text, and `rel_ref` never picks a null. Composite children take it too (`{gen: ..., config: ..., null_rate: 0.3}` nulls just that child). Validation rejects it on a `driven_by` parent key.
 - Set `seed` explicitly at the top level (it defaults to 0 when omitted). The user can override it at run time with `--seed`.
@@ -115,6 +115,8 @@ entities:
       gen: expr
       config: { expr: "{quantity} * 250" }
 ```
+
+`expr` has `round`, `floor`, and `ceil` for whole numbers: `round({total} / 12)` is whole cents. To split a total into whole amounts that add up to it exactly, take each child's share of the running total: `floor({total} * ({i} + 1) / 12) - floor({total} * {i} / 12)`.
 
 Field order matters: `expr`/`date_offset` can only reference fields declared **before** them (or injected by `driven_by`).
 
