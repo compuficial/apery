@@ -202,6 +202,26 @@ var relationalPlan = plan.Plan{
 				"entity": "Product", "field": "id", "unique": true, "distribution": "zipf",
 			}},
 		}},
+		// Exponential gaps build on the row before: each entity runs in order
+		// on one worker, standalone and driven_by (beside unique draws).
+		{Name: "Visit", Count: 300, Fields: []plan.FieldSpec{
+			{Name: "customer_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Customer", "field": "id",
+			}},
+			{Name: "seen_at", Gen: "time_seq", Config: map[string]any{
+				"start": "2024-01-01", "step": "10m", "gaps": "exponential",
+			}},
+		}},
+		{Name: "Bookmark", DrivenBy: &plan.DrivenBy{
+			Entity: "Customer", Field: "id", As: "customer_id", Min: 1, Max: 3,
+		}, Fields: []plan.FieldSpec{
+			{Name: "product_id", Gen: "rel_ref", Config: map[string]any{
+				"entity": "Product", "field": "id", "unique": true,
+			}},
+			{Name: "saved_at", Gen: "time_seq", Config: map[string]any{
+				"start": "2024-01-01", "step": "1h", "gaps": "exponential",
+			}},
+		}},
 	},
 }
 

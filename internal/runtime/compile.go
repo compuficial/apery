@@ -22,6 +22,9 @@ type compiledField struct {
 	// isBatchScoped is set when the generator keeps per-batch state
 	// (Resettable).
 	isBatchScoped bool
+	// isSequential is set when each value builds on the row before
+	// (Sequential).
+	isSequential bool
 }
 
 // compiledEntity is an entity whose generators have all been built once.
@@ -33,6 +36,10 @@ type compiledEntity struct {
 	// A standalone entity then runs as one sequential batch; driven_by
 	// chunks align to parent boundaries.
 	isBatchScoped bool
+	// isSequential is set when a field builds on the row before
+	// (Sequential). The entity then runs in order on one worker with one set
+	// of instances.
+	isSequential bool
 }
 
 // Validate checks a plan's structure and builds every generator once, so
@@ -107,6 +114,7 @@ func compileEntity(e *plan.EntitySpec, index int, env *registry.Env) (compiledEn
 		}
 
 		ent.isBatchScoped = ent.isBatchScoped || cf.isBatchScoped
+		ent.isSequential = ent.isSequential || cf.isSequential
 		ent.fields = append(ent.fields, cf)
 	}
 	return ent, issues
@@ -154,6 +162,7 @@ func compileField(f *plan.FieldSpec, env *registry.Env, known map[string]bool) (
 
 	cf := compiledField{name: f.Name, gen: f.Gen, config: config, factory: factory, deps: deps, nullRate: f.NullRate}
 	_, cf.isBatchScoped = gen.(registry.Resettable)
+	_, cf.isSequential = gen.(registry.Sequential)
 	if sc, ok := gen.(registry.StoreConsumer); ok {
 		cf.refs = sc.StoreRefs()
 	}

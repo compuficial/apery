@@ -188,7 +188,8 @@ func checkNestable(gen Generator, name, where string, rule nesting) error {
 	}
 	_, seekable := gen.(Seekable)
 	_, resettable := gen.(Resettable)
-	if seekable || resettable {
+	_, sequential := gen.(Sequential)
+	if seekable || resettable || sequential {
 		return fmt.Errorf("%s: %q keeps per-row state, so nested output would depend on chunk size; use it as a top-level field", where, name)
 	}
 	if _, ok := gen.(RowAwareGenerator); ok && rule == nestPure {

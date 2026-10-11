@@ -201,18 +201,16 @@ func (e *Executor) runEntity(ctx context.Context, seed int64, ent *compiledEntit
 func (e *Executor) runStandaloneEntity(ctx context.Context, ent *compiledEntity, fields []fieldRuntime, store registry.ReadOnlyEntityStore, emit func([]*writer.OrderedMap) error) (int64, error) {
 	count := e.capRows(ent.spec.Count)
 	chunks := makeChunks(count, e.chunkSize)
-	workers := e.workerCount()
-	instances := chunkInstances(fields, store)
 
 	// A batch-scoped generator (unique rel_ref) treats the whole entity as
-	// one batch: one set of instances, shared by chunks run in order.
-	if ent.isBatchScoped {
-		shared, err := instantiateFields(fields, store)
-		if err != nil {
-			return 0, err
-		}
-		workers = 1
-		instances = func() ([]chunkField, error) { return shared, nil }
+	// one batch, so it keeps its state across chunks like a sequential one.
+	mode := perChunkInstances
+	if ent.isBatchScoped || ent.isSequential {
+		mode = sharedInstances
+	}
+	instances, workers, err := e.chunkInstances(fields, store, mode)
+	if err != nil {
+		return 0, err
 	}
 
 	return count, streamChunks(ctx, chunks, workers, func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
@@ -252,9 +250,25 @@ type chunkField struct {
 	seekable registry.Seekable          // non-nil if gen tracks row position
 }
 
-// chunkInstances returns a builder of fresh generator instances per chunk.
-func chunkInstances(fields []fieldRuntime, store registry.ReadOnlyEntityStore) func() ([]chunkField, error) {
-	return func() ([]chunkField, error) { return instantiateFields(fields, store) }
+// instancing says whether each chunk gets its own generator instances.
+type instancing int
+
+const (
+	perChunkInstances instancing = iota // fresh per chunk; chunks run in parallel
+	sharedInstances                     // one set; chunks run in order on one worker
+)
+
+// chunkInstances returns a builder of each chunk's generator instances and
+// the number of workers that may run chunks.
+func (e *Executor) chunkInstances(fields []fieldRuntime, store registry.ReadOnlyEntityStore, mode instancing) (func() ([]chunkField, error), int, error) {
+	if mode == perChunkInstances {
+		return func() ([]chunkField, error) { return instantiateFields(fields, store) }, e.workerCount(), nil
+	}
+	shared, err := instantiateFields(fields, store)
+	if err != nil {
+		return nil, 0, err
+	}
+	return func() ([]chunkField, error) { return shared, nil }, 1, nil
 }
 
 // instantiateFields builds generator instances and binds the entity store

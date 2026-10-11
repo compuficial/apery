@@ -179,7 +179,7 @@ Problems are returned as a `*plan.ValidationError` holding `Issue`s. Each issue 
 - The generator exists (`unknown_generator`, with a "did you mean" hint).
 - Every config key is declared in the generator's `GeneratorInfo` (`unknown_config_key`), and the factory accepts the config (`invalid_config`). Optional keys with the wrong type are errors, never silently ignored.
 - Row-aware generators only reference fields declared earlier, or injected by `driven_by` (`dependency_order`).
-- Composites (`object`, `list`, `one_of`, `switch`) may not contain stateful generators (`seq`, `unique` `rel_ref`) or generators that read other entities (`rel_ref`): composites build their children per chunk without seeking or binding them, so the output would depend on chunk size. `object`, `list`, and `one_of` also reject row-aware children (`template`, `expr`, `date_offset`, `switch`); `switch` cases may be row-aware because `switch` passes the row through.
+- Composites (`object`, `list`, `one_of`, `switch`) may not contain stateful generators (`seq`, `time_seq`, `unique` `rel_ref`) or generators that read other entities (`rel_ref`): composites build their children per chunk without seeking or binding them, so the output would depend on chunk size. `object`, `list`, and `one_of` also reject row-aware children (`template`, `expr`, `date_offset`, `switch`); `switch` cases may be row-aware because `switch` passes the row through.
 
 **Relational**
 - A `DrivenBy` parent entity must be declared before the child.
@@ -220,7 +220,7 @@ Any field can set `null_rate`, the fraction of rows (0 to 1) whose value is null
 | `lognormal`    | —                  | `mu` (=0.0), `sigma` (=1.0), in log space; `clamp_min`, `clamp_max`; `round` (=false) | `float64` \| `int64` | Positive with a long right tail (prices, durations); median e^mu. `round: true` emits the nearest whole number after clamping (prices in cents); a draw at or above 2^63 is an error |
 | `exponential`  | —                  | `mean` (=1.0, > 0), `clamp_max`         | `float64`| Gaps between independent events (rate = 1/mean) |
 | `poisson`      | —                  | `lambda` (=1.0, > 0, <= 1e15)           | `int64`  | Count of events per period; mean and variance are `lambda` |
-| `time_seq`     | `start`, `step` (Go duration: `"90s"`, `"24h"`) | `jitter` (duration < `step`), `format` (=RFC3339), `tz` | `string` | Increasing timestamps: row i is `start + i*step` plus up to `jitter`, so each is later than the last. Seekable (like `seq`), so chunking doesn't change it; under `driven_by` it is one timeline across all children. Rows times step must stay within about 292 years |
+| `time_seq`     | `start`, `step` (Go duration: `"90s"`, `"24h"`) | `jitter` (duration < `step`), `gaps` (=`fixed` \| `exponential`), `format` (=RFC3339), `tz` | `string` | Increasing timestamps: row i is `start + i*step` plus up to `jitter`, so each is later than the last. Seekable (like `seq`), so chunking doesn't change it; under `driven_by` it is one timeline across all children. `gaps: exponential` makes the times of independent events (a Poisson process) instead: row 0 is `start` and each later row adds a random gap averaging `step` (no `jitter`), never earlier than the row before. Each value builds on the one before, so the entity runs on one worker (§7.3); it is still one timeline under `driven_by`. Timestamps must stay within about 292 years of `start` |
 | `pick`         | one of `values` \| `file` \| `url` | `weights` (inline values only), `allowlist` (required with `url`) | any | Random selection from inline list, file, or URL |
 | `uuid`         | —                  | —                                       | `string` | UUID v4 |
 | `ulid`         | —                  | —                                       | `string` | ULID (sortable) |
@@ -424,6 +424,7 @@ Implemented in [`internal/rng/rng.go`](../internal/rng/rng.go).
 - The first error (from a chunk, the writer, or context cancellation such as Ctrl+C) cancels the remaining chunks, and every goroutine exits before `Run` returns.
 - Positional generators (`Seekable`, e.g. `seq`) are seeked to each chunk's first row.
 - Standalone entities with a batch-scoped (`Resettable`) generator, i.e. a `unique: true` `rel_ref`, run their chunks in order on a single worker with one shared set of instances, so the whole entity is one uniqueness batch.
+- Entities with a `Sequential` generator, i.e. `time_seq` with `gaps: exponential`, run the same way, standalone or `driven_by`, because each value builds on the row before. Resettable generators beside it still reset at each parent's first child, including a chunk's first row.
 
 ```
 dispatcher ──chunks in order──▶ workers ──results, any order──▶ emitter ──▶ writer
@@ -485,6 +486,11 @@ type Seekable interface {
     SeekRow(row int64) error
 }
 
+type Sequential interface {
+    Generator
+    buildsOnPreviousRow() // a marker: only this package implements it
+}
+
 type StoreConsumer interface {
     StoreRefs() []ColumnRef // columns of earlier entities this generator reads
     BindStore(store ReadOnlyEntityStore) error
@@ -494,8 +500,9 @@ type StoreConsumer interface {
 - `RowAwareGenerator` — `template`, `switch`, `expr`, `date_offset`. The executor calls `NextWithRow` when this interface is satisfied, giving access to already-generated fields in the current row.
 - `DependencyDeclarer` — `template`, `switch`, `expr`, `date_offset`. Declared dependencies are validated to appear earlier in the field list.
 - `Resettable` — `rel_ref` (when `unique: true`). Reset at parent-batch boundaries inside driven_by entities; a standalone entity is one batch.
+- `Sequential` — `time_seq` (when `gaps: exponential`). The entity runs in order on one worker with one set of instances (§7.3).
 
-`seq` implements `Seekable` (positioned at each chunk's first row), and `rel_ref` implements `StoreConsumer` (bound to the cross-entity store per chunk). Generators implementing `Seekable`, `Resettable`, or `StoreConsumer` must be top-level fields (§4.3).
+`seq` and `time_seq` implement `Seekable` (positioned at each chunk's first row), and `rel_ref` implements `StoreConsumer` (bound to the cross-entity store per chunk). Generators implementing `Seekable`, `Resettable`, `Sequential`, or `StoreConsumer` must be top-level fields (§4.3).
 
 ---
 
@@ -760,7 +767,7 @@ return apery.Run(ctx, p, w, apery.WithWorkers(8))
        MustRegisterInfo("mygen", GeneratorInfo{ /* description, keys, example */ })
    }
    ```
-   `ConfigKeys` must list every config key the factory reads: `Get` rejects undeclared keys, and `TestGeneratorExamplesBuild` builds each `Example` under that check. Generators with per-row state implement `Seekable` or `Resettable`; generators that read other entities implement `StoreConsumer` (§7.7).
+   `ConfigKeys` must list every config key the factory reads: `Get` rejects undeclared keys, and `TestGeneratorExamplesBuild` builds each `Example` under that check. Generators with per-row state implement `Seekable`, `Resettable`, or `Sequential`; generators that read other entities implement `StoreConsumer` (§7.7).
 4. Add a field using the new generator to the appropriate canonical plan in [`internal/runtime/determinism_helpers_test.go`](../internal/runtime/determinism_helpers_test.go) (scalar, composite, row-aware, relational, or dependent). If the generator doesn't fit any existing category, add a new canonical plan to the `canonicalPlans` slice.
 5. Regenerate golden files:
    ```

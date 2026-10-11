@@ -78,7 +78,7 @@ go test ./internal/runtime -run TestStress -v
    - Generators use `init()` for auto-registration (via `MustRegister`)
    - Each generator implements `Next(r *rng.Rng) (any, error)`
    - Built-in generators: `seq`, `pick` (values|file|url, optional weights), `const`, `bool`, `int`, `float`, `uuid`, `ulid`, `time`, `time_seq`, `regex`, `normal_int`, `normal_float`, `lognormal`, `exponential`, `poisson`, `zipf`, `object`, `list`, `sample`, `one_of`, `template`, `switch`, `expr`, `date_offset`, `rel_ref`
-   - Interfaces: `Generator`, `RowAwareGenerator`, `DependencyDeclarer`, `ReadOnlyEntityStore`, `EntityStore`, `Resettable`, `Seekable`, `StoreConsumer`
+   - Interfaces: `Generator`, `RowAwareGenerator`, `DependencyDeclarer`, `ReadOnlyEntityStore`, `EntityStore`, `Resettable`, `Seekable`, `Sequential`, `StoreConsumer`
    - `Env` (passed as `_env`): per-run base dir and cache so each `file`/`url` value source loads once
 
 3. **Runtime/Executor** (`internal/runtime`): Orchestrates data generation
@@ -91,6 +91,7 @@ go test ./internal/runtime -run TestStress -v
    - Cross-entity column store (`mapEntityStore`) for relational generators
    - Two-phase driven_by execution: count generation then chunked parallel generation
    - Batch-scoped (`Resettable`) fields: parent-aligned chunks for driven_by; standalone entities run as one sequential batch with shared instances
+   - `Sequential` fields (`time_seq` with `gaps: exponential`): the entity, standalone or driven_by, runs on one worker with shared instances
    - Structured logging via `*slog.Logger` (Info for entity progress, Debug for seeds/chunks)
 
 4. **Writer** (`internal/writer`): Output abstraction
@@ -149,7 +150,7 @@ func init() {
 
 ### Composite Generators
 
-Composite generators (`object`, `list`, `one_of`, `switch`) build children at factory time through `buildSubGenerator` (`composite.go`), which forwards the run `Env`, rejects unknown spec keys, and rejects children that would make output depend on chunking: `Seekable`/`Resettable` (e.g. `seq`), `StoreConsumer` (`rel_ref`), and row-aware generators outside `switch` cases. During `Next()`, they reseed a per-instance scratch `Rng` with `rng.Derive(r.GetSeed(), fieldName)` for each sub-field, ensuring deterministic output independent of field ordering.
+Composite generators (`object`, `list`, `one_of`, `switch`) build children at factory time through `buildSubGenerator` (`composite.go`), which forwards the run `Env`, rejects unknown spec keys, and rejects children that would make output depend on chunking: `Seekable`/`Resettable`/`Sequential` (e.g. `seq`), `StoreConsumer` (`rel_ref`), and row-aware generators outside `switch` cases. During `Next()`, they reseed a per-instance scratch `Rng` with `rng.Derive(r.GetSeed(), fieldName)` for each sub-field, ensuring deterministic output independent of field ordering.
 
 ### Relational Generators
 
@@ -175,7 +176,7 @@ Key design rules:
 2. Implement `Generator` interface
 3. Register in `init()` function with factory
 4. Factory should validate config and return generator instance; register `GeneratorInfo` whose `ConfigKeys` list every key the factory reads (`Get` rejects the rest, and `TestGeneratorExamplesBuild` checks each `Example`)
-   - Per-row state → implement `Seekable` (e.g. `seq`, `time_seq`) or `Resettable`; reads other entities → implement `StoreConsumer`
+   - Per-row state → implement `Seekable` (e.g. `seq`, `time_seq`), `Resettable`, or, when each value builds on the row before, `Sequential`; reads other entities → implement `StoreConsumer`
 5. Add a field using the new generator to the appropriate canonical plan in `internal/runtime/determinism_helpers_test.go` (scalar, composite, row-aware, relational, or dependent)
 6. Regenerate golden files: `go test ./internal/runtime -run TestGolden -update -v`
 7. Review the golden file diff and commit
