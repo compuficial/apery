@@ -261,6 +261,15 @@ type Seekable interface {
 	SeekRow(row int64) error
 }
 
+// Sequential is implemented by generators whose value builds on the row
+// before (e.g. time_seq with exponential gaps), so no chunk can start on its
+// own. The executor runs the entity's rows in order on one worker, with one
+// instance for every chunk.
+type Sequential interface {
+	Generator
+	buildsOnPreviousRow()
+}
+
 // ColumnRef names a column of a previously generated entity.
 type ColumnRef struct {
 	Entity string

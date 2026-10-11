@@ -129,11 +129,12 @@ func keepFieldsFor(ent compiledEntity, columns map[string]bool) compiledEntity {
 	}
 
 	kept := ent
-	kept.fields, kept.isBatchScoped = nil, false
+	kept.fields, kept.isBatchScoped, kept.isSequential = nil, false, false
 	for _, f := range ent.fields {
 		if needed[f.name] {
 			kept.fields = append(kept.fields, f)
 			kept.isBatchScoped = kept.isBatchScoped || f.isBatchScoped
+			kept.isSequential = kept.isSequential || f.isSequential
 		}
 	}
 	return kept

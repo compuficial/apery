@@ -127,11 +127,22 @@ func (e *Executor) runDrivenByEntity(ctx context.Context, entitySeed rng.Seed, e
 	}
 	chunks := makeDrivenByChunks(layout, total, e.chunkSize, mode)
 
+	// A sequential generator continues from one parent's children to the
+	// next, so it needs the previous chunk's instance.
+	sharing := perChunkInstances
+	if ent.isSequential {
+		sharing = sharedInstances
+	}
+	instances, workers, err := e.chunkInstances(fields, store, sharing)
+	if err != nil {
+		return 0, err
+	}
+
 	e.logger.Debug("driven_by.layout", "entity", ent.spec.Name, "parent", db.Entity, "total_children", layout.total)
 
-	return total, streamChunks(ctx, chunks, e.workerCount(), func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
+	return total, streamChunks(ctx, chunks, workers, func(ctx context.Context, ch chunk) ([]*writer.OrderedMap, error) {
 		e.logger.Debug("chunk.start", "entity", ent.spec.Name, "chunk", ch.Index, "start", ch.Start, "end", ch.End)
-		cfs, err := instantiateFields(fields, store)
+		cfs, err := instances()
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +155,7 @@ func (e *Executor) runDrivenByEntity(ctx context.Context, entitySeed rng.Seed, e
 
 // runDrivenByChunk generates rows for a driven_by entity chunk.
 // It tracks parent transitions linearly (O(1) amortized), injects the parent
-// value, and resets Resettable generators on parent transitions.
+// value, and resets Resettable generators at each parent's first child.
 func runDrivenByChunk(ctx context.Context, db *plan.DrivenBy, chunkFields []chunkField, ch chunk, layout *drivenByLayout) ([]*writer.OrderedMap, error) {
 	// Precompute which fields are Resettable to avoid per-row type assertions.
 	resettables := make([]registry.Resettable, 0)
@@ -175,14 +186,18 @@ func runDrivenByChunk(ctx context.Context, db *plan.DrivenBy, chunkFields []chun
 
 		// Advance parent when row crosses boundary (O(1) amortized).
 		if row >= nextParentRow {
-			for _, r := range resettables {
-				r.Reset()
-			}
 			parentIdx++
 			if parentIdx+1 < int64(len(layout.prefixSum)) {
 				nextParentRow = layout.prefixSum[parentIdx+1]
 			} else {
 				nextParentRow = layout.total
+			}
+		}
+		// Each parent's children are a batch. A chunk's first row can start
+		// one too: shared instances still hold the previous chunk's state.
+		if row == layout.prefixSum[parentIdx] {
+			for _, r := range resettables {
+				r.Reset()
 			}
 		}
 

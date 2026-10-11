@@ -152,7 +152,7 @@ EOF
 apery generate -f /tmp/events.yaml | jq -c '{at, basket_eur, think_seconds, items}'
 ```
 
-`time_seq` steps are Go durations (`90s`, `15m`, `24h`); `jitter` must be smaller than `step`, which keeps every timestamp later than the one before.
+`time_seq` steps are Go durations (`90s`, `15m`, `24h`); `jitter` must be smaller than `step`, which keeps every timestamp later than the one before. For the bursts and lulls of independent events, such as signups or page views, use `gaps: exponential`: gaps are random and average `step`. Each timestamp then builds on the one before, so that entity generates on one worker.
 
 For whole numbers, such as prices in cents, give `lognormal` `round: true`; `expr` has `round`, `floor`, and `ceil` (`round({total} / 12)`).
 
