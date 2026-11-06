@@ -20,9 +20,18 @@ func assertSkillAt(t *testing.T, dir string) {
 	}
 }
 
-func TestSkillInstallDefaultDirs(t *testing.T) {
+// fakeHome points os.UserHomeDir at a temp dir (HOME on Unix, USERPROFILE
+// on Windows) and returns it.
+func fakeHome(t *testing.T) string {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	return home
+}
+
+func TestSkillInstallDefaultDirs(t *testing.T) {
+	home := fakeHome(t)
 
 	_, stderr, code := runCLI(t, "skill", "install")
 	if code != exitOK {
@@ -34,8 +43,7 @@ func TestSkillInstallDefaultDirs(t *testing.T) {
 }
 
 func TestSkillInstallCustomDir(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := fakeHome(t)
 	dir := filepath.Join(t.TempDir(), "skills")
 
 	_, stderr, code := runCLI(t, "skill", "install", "--dir", dir)
