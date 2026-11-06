@@ -23,7 +23,7 @@ Skip it for: one-off "give me five examples" requests (just write them inline), 
 apery version
 ```
 
-If not on PATH: tell the user to run `curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/install.sh | sh` (the project's official one-liner). Do **not** try to install it for them silently.
+If not on PATH: tell the user to run `curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/install.sh | sh` (the project's official one-liner). Do **not** try to install it for them silently. After upgrading apery, `apery skill install` refreshes this skill to match the new version.
 
 ## Workflow
 

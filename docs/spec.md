@@ -689,6 +689,15 @@ From [`cmd/apery/main.go`](../cmd/apery/main.go):
 | 4 | `verify`: the files differ from what the plan generates |
 | 130 | Interrupted (SIGINT); generation stops promptly |
 
+### 10.7 `apery skill install`
+
+```
+apery skill install                        # ~/.claude/skills and ~/.agents/skills
+apery skill install --dir .claude/skills   # custom directory (repeatable)
+```
+
+Writes the agent skill embedded in the binary (`apery.Skill`, from `.claude/skills/apery/SKILL.md`) to `<dir>/apery/SKILL.md`, overwriting any older copy. Rerun after upgrading to keep the skill in sync with the CLI. Exit code 3 if a directory can't be written.
+
 ---
 
 ## 11. Go Library API

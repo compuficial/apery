@@ -60,3 +60,5 @@ case ":${PATH}:" in
   *":${DEST}:"*) ;;
   *) echo "Warning: add ${DEST} to your PATH to use ${BIN}" ;;
 esac
+
+echo "To teach coding agents to use ${BIN}, run: ${BIN} skill install"

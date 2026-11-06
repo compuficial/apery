@@ -112,6 +112,7 @@ or 'apery list generators' to discover available generators.`,
 		newValidateCmd(),
 		newListCmd(),
 		newDescribeCmd(),
+		newSkillCmd(),
 	)
 	return root
 }

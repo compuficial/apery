@@ -53,23 +53,23 @@ make install   # builds and installs to ~/.local/bin
 
 Apery ships an [agent skill](.claude/skills/apery/SKILL.md) that teaches coding agents when to reach for apery and how to write plans: generator discovery, relational patterns, and pitfalls.
 
-**Claude Code** loads it automatically when working inside this repo. To use it in every project, install it with the [skills](https://skills.sh) CLI:
+**Claude Code** loads it automatically when working inside this repo. To use it in every project, install the copy bundled with your binary, so the skill always matches your CLI version:
 
 ```bash
-npx skills add compuficial/apery -g            # pick your agents interactively
-npx skills add compuficial/apery -g -a claude-code -a codex -y
+apery skill install                        # writes to both directories below
+apery skill install --dir .claude/skills   # or a directory of your choice
 ```
-
-Or copy the file by hand into your agent's skills directory:
 
 | Agent | Skills directory |
 |-------|------------------|
 | Claude Code | `~/.claude/skills/` |
 | Codex, Cline, Warp, Zed, and other agents that read `~/.agents` | `~/.agents/skills/` |
 
+Rerun it after upgrading apery. To install the skill without the binary, or into other agents, use the [skills](https://skills.sh) CLI:
+
 ```bash
-dir=~/.agents/skills/apery   # or ~/.claude/skills/apery
-mkdir -p "$dir" && curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/.claude/skills/apery/SKILL.md -o "$dir/SKILL.md"
+npx skills add compuficial/apery -g            # pick your agents interactively
+npx skills add compuficial/apery -g -a claude-code -a codex -y
 ```
 
 The skill is a single `SKILL.md` in the open [Agent Skills](https://agentskills.io) format, so any agent that supports the format can consume the same file. Agents without skill support can still self-serve: `apery list generators` and `apery describe generator <name>` expose the full config schema at runtime.
@@ -268,6 +268,7 @@ apery validate -f plan.yaml -o json      # machine-readable issues: path, code, 
 apery list generators                    # list all generators (-o json|yaml for full metadata)
 apery describe generator <name>          # show config schema + example (-o json|yaml)
 apery describe plan-schema               # JSON Schema for plan files
+apery skill install                      # install the agent skill for Claude Code, Codex, and others
 apery version                            # print version
 apery help <command>                     # help for any command
 ```

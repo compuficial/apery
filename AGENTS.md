@@ -190,6 +190,7 @@ The registry is global and thread-safe via init-time registration.
 - `cmd/apery/verify.go`: Verify subcommand (same flags as generate; compares instead of writing)
 - `cmd/apery/validate.go`: Validate subcommand
 - `cmd/apery/generators.go`: `list generators` and `describe generator|plan-schema` subcommands (`-o json|yaml`)
+- `cmd/apery/skill.go`: `skill install` writes the embedded agent skill to agent skills directories
 - `cmd/apery/main_test.go`: In-process CLI tests (`run(args, stdout, stderr)` returns the exit code)
 - `internal/plan/plan.go`: Data structures for declarative plans (`Plan`, `EntitySpec`, `FieldSpec`, `DrivenBy`)
 - `internal/plan/load.go`: YAML/JSON plan file loading with `LoadFile()`
@@ -218,6 +219,7 @@ The registry is global and thread-safe via init-time registration.
 - `internal/rng/portable_math.go`: Exp/Log/Cos that round identically on every CPU; `TestDigestsArePortable` pins their bits
 - `internal/rng/distributions.go`: LogNormal, Exponential, and Poisson samplers (portable math)
 - `run.go`: Public API re-exports for library usage
+- `skill.go`: `apery.Skill`, the agent skill (`.claude/skills/apery/SKILL.md`) embedded for `skill install`
 
 ## Design Documents
 
