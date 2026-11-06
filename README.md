@@ -53,10 +53,23 @@ make install   # builds and installs to ~/.local/bin
 
 Apery ships an [agent skill](.claude/skills/apery/SKILL.md) that teaches coding agents when to reach for apery and how to write plans: generator discovery, relational patterns, and pitfalls.
 
-**Claude Code** loads it automatically when working inside this repo. To make it available in every project, install it as a personal skill:
+**Claude Code** loads it automatically when working inside this repo. To use it in every project, install it with the [skills](https://skills.sh) CLI:
 
 ```bash
-mkdir -p ~/.claude/skills/apery && curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/.claude/skills/apery/SKILL.md -o ~/.claude/skills/apery/SKILL.md
+npx skills add compuficial/apery -g            # pick your agents interactively
+npx skills add compuficial/apery -g -a claude-code -a codex -y
+```
+
+Or copy the file by hand into your agent's skills directory:
+
+| Agent | Skills directory |
+|-------|------------------|
+| Claude Code | `~/.claude/skills/` |
+| Codex, Cline, Warp, Zed, and other agents that read `~/.agents` | `~/.agents/skills/` |
+
+```bash
+dir=~/.agents/skills/apery   # or ~/.claude/skills/apery
+mkdir -p "$dir" && curl -fsSL https://raw.githubusercontent.com/compuficial/apery/main/.claude/skills/apery/SKILL.md -o "$dir/SKILL.md"
 ```
 
 The skill is a single `SKILL.md` in the open [Agent Skills](https://agentskills.io) format, so any agent that supports the format can consume the same file. Agents without skill support can still self-serve: `apery list generators` and `apery describe generator <name>` expose the full config schema at runtime.
